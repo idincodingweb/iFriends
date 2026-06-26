@@ -41,7 +41,8 @@ jobs:
       # ic_launcher.png with the default Flutter logo.
 
       - name: Build Release APK
-        run: flutter build apk --release
+        # Tambahan --no-shrink ada di baris bawah ini buat ngebunuh error D8/Dexing
+        run: flutter build apk --release --no-shrink
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
