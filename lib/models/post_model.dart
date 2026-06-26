@@ -57,6 +57,7 @@ class Comment {
   final String text;
   final String parentId; // '' = top-level, otherwise id of the parent comment
   final String replyToName; // @username this reply targets (for display)
+  final List<String> likes; // uids that liked this comment
   final DateTime createdAt;
 
   const Comment({
@@ -67,10 +68,12 @@ class Comment {
     required this.text,
     this.parentId = '',
     this.replyToName = '',
+    this.likes = const [],
     required this.createdAt,
   });
 
   bool get isReply => parentId.isNotEmpty;
+  int get likesCount => likes.length;
 
   factory Comment.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final m = doc.data() ?? const {};
@@ -82,6 +85,7 @@ class Comment {
       text: (m['text'] ?? '') as String,
       parentId: (m['parentId'] ?? '') as String,
       replyToName: (m['replyToName'] ?? '') as String,
+      likes: List<String>.from(m['likes'] ?? const []),
       createdAt: (m['createdAt'] is Timestamp)
           ? (m['createdAt'] as Timestamp).toDate()
           : DateTime.now(),

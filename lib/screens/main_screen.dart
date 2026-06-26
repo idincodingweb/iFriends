@@ -33,6 +33,7 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     return StreamBuilder<AppUser?>(
       stream: FirestoreService.instance.userStream(widget.uid),
+      initialData: FirestoreService.instance.cachedUser(widget.uid),
       builder: (context, snap) {
         final me = snap.data;
         final pages = <Widget>[

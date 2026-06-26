@@ -8,6 +8,7 @@ import '../services/firestore_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/feed_post_card.dart';
 import '../widgets/live_user_avatar.dart';
+import 'activity_screen.dart';
 import 'chats_inbox_screen.dart';
 import 'friends_screen.dart';
 import 'story_create_screen.dart';
@@ -37,8 +38,11 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
       case _FeedTab.trending:
       case _FeedTab.popular:
         return FirestoreService.instance.trendingStream();
-      case _FeedTab.all:
       case _FeedTab.saved:
+        final uid = AuthService.instance.currentUser?.uid ?? '';
+        if (uid.isEmpty) return const Stream.empty();
+        return FirestoreService.instance.savedPostsStream(uid);
+      case _FeedTab.all:
         return FirestoreService.instance.feedStream();
     }
   }
@@ -96,8 +100,9 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
         children: [
           GestureDetector(
             onTap: widget.onMenu,
-            child: const Icon(Icons.menu_rounded,
-                color: Colors.white, size: 30),
+            child: _MenuWithBadge(
+              uid: AuthService.instance.currentUser?.uid ?? '',
+            ),
           ),
           const SizedBox(width: 14),
           const Text(
@@ -120,8 +125,17 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const ChatsInboxScreen()),
             ),
-            child: const Icon(Icons.notifications_none_rounded,
-                color: Colors.white, size: 26),
+            child: const Icon(Icons.chat_bubble_outline_rounded,
+                color: Colors.white, size: 24),
+          ),
+          const SizedBox(width: 18),
+          GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ActivityScreen()),
+            ),
+            child: _BellWithBadge(
+              uid: AuthService.instance.currentUser?.uid ?? '',
+            ),
           ),
         ],
       ),
@@ -502,3 +516,86 @@ class _StoryRingState extends State<_StoryRing>
     );
   }
 }
+
+/// Badge that shows the unread-notification count on top of the menu icon.
+class _MenuWithBadge extends StatelessWidget {
+  final String uid;
+  const _MenuWithBadge({required this.uid});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<int>(
+      stream: FirestoreService.instance.unreadNotificationsCount(uid),
+      builder: (context, snap) {
+        final n = snap.data ?? 0;
+        return _IconBadge(
+          icon: Icons.menu_rounded,
+          size: 30,
+          count: n,
+        );
+      },
+    );
+  }
+}
+
+class _BellWithBadge extends StatelessWidget {
+  final String uid;
+  const _BellWithBadge({required this.uid});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<int>(
+      stream: FirestoreService.instance.unreadNotificationsCount(uid),
+      builder: (context, snap) {
+        final n = snap.data ?? 0;
+        return _IconBadge(
+          icon: Icons.notifications_none_rounded,
+          size: 26,
+          count: n,
+        );
+      },
+    );
+  }
+}
+
+class _IconBadge extends StatelessWidget {
+  final IconData icon;
+  final double size;
+  final int count;
+  const _IconBadge({required this.icon, required this.size, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon, color: Colors.white, size: size),
+        if (count > 0)
+          Positioned(
+            right: -4,
+            top: -2,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+              decoration: BoxDecoration(
+                color: AppColors.primaryPink,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white, width: 1.5),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                count > 99 ? '99+' : '$count',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  height: 1.0,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+

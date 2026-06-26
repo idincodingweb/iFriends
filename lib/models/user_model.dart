@@ -11,6 +11,8 @@ class AppUser {
   final String role; // 'user' | 'verified'
   final List<String> following;
   final List<String> followers;
+  final List<String> saved; // postIds the user bookmarked
+  final String fcmToken; // for push (filled when firebase_messaging is wired)
   final DateTime createdAt;
 
   const AppUser({
@@ -24,6 +26,8 @@ class AppUser {
     this.role = 'user',
     this.following = const [],
     this.followers = const [],
+    this.saved = const [],
+    this.fcmToken = '',
     required this.createdAt,
   });
 
@@ -41,6 +45,8 @@ class AppUser {
       role: (m['role'] ?? 'user') as String,
       following: List<String>.from(m['following'] ?? const []),
       followers: List<String>.from(m['followers'] ?? const []),
+      saved: List<String>.from(m['saved'] ?? const []),
+      fcmToken: (m['fcmToken'] ?? '') as String,
       createdAt: (m['createdAt'] is Timestamp)
           ? (m['createdAt'] as Timestamp).toDate()
           : DateTime.now(),
@@ -57,6 +63,8 @@ class AppUser {
         'role': role,
         'following': following,
         'followers': followers,
+        'saved': saved,
+        'fcmToken': fcmToken,
         'createdAt': Timestamp.fromDate(createdAt),
       };
 
@@ -77,6 +85,8 @@ class AppUser {
       role: role,
       following: following,
       followers: followers,
+      saved: saved,
+      fcmToken: fcmToken,
       createdAt: createdAt,
     );
   }

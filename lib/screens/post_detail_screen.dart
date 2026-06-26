@@ -188,6 +188,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                           );
                         }
                         return _CommentTree(
+                          postId: widget.postId,
                           comments: list,
                           onReply: _startReply,
                         );
@@ -308,27 +309,32 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 /// arbitrary nesting depth (multi-level replies); indentation is capped so deep
 /// chains stay readable, Instagram-style.
 class _CommentTree extends StatelessWidget {
+  final String postId;
   final List<Comment> comments;
   final void Function(Comment) onReply;
-  const _CommentTree({required this.comments, required this.onReply});
+  const _CommentTree({
+    required this.postId,
+    required this.comments,
+    required this.onReply,
+  });
 
   @override
   Widget build(BuildContext context) {
     final byParent = <String, List<Comment>>{};
     final ids = comments.map((c) => c.id).toSet();
     for (final c in comments) {
-      // Treat replies whose parent was deleted as top-level so nothing is lost.
+      // If parent comment was deleted/missing, treat as top-level.
       final key = (c.parentId.isNotEmpty && ids.contains(c.parentId))
           ? c.parentId
           : '';
       byParent.putIfAbsent(key, () => <Comment>[]).add(c);
     }
-
     final rows = <Widget>[];
     void walk(String parentId, int depth) {
       final children = byParent[parentId] ?? const <Comment>[];
       for (final c in children) {
         rows.add(_CommentRow(
+          postId: postId,
           comment: c,
           depth: depth,
           onReply: onReply,
@@ -336,17 +342,18 @@ class _CommentTree extends StatelessWidget {
         walk(c.id, depth + 1);
       }
     }
-
     walk('', 0);
     return Column(children: rows);
   }
 }
 
 class _CommentRow extends StatelessWidget {
+  final String postId;
   final Comment comment;
   final int depth;
   final void Function(Comment) onReply;
   const _CommentRow({
+    required this.postId,
     required this.comment,
     required this.depth,
     required this.onReply,
@@ -356,6 +363,8 @@ class _CommentRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final indent = (depth.clamp(0, 4)) * 28.0;
     final avatarSize = depth == 0 ? 32.0 : 26.0;
+    final myUid = AuthService.instance.currentUser?.uid ?? '';
+    final liked = comment.likes.contains(myUid);
     return Padding(
       padding: EdgeInsets.only(left: indent, top: 6, bottom: 6),
       child: Row(
@@ -414,6 +423,36 @@ class _CommentRow extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          // Heart toggle for the comment.
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GestureDetector(
+                onTap: myUid.isEmpty
+                    ? null
+                    : () => FirestoreService.instance.toggleCommentLike(
+                          postId: postId,
+                          commentId: comment.id,
+                          uid: myUid,
+                        ),
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    liked ? Icons.favorite : Icons.favorite_border,
+                    size: 16,
+                    color: liked ? AppColors.primaryPink : AppColors.textMuted,
+                  ),
+                ),
+              ),
+              if (comment.likes.isNotEmpty)
+                Text(
+                  '${comment.likes.length}',
+                  style: const TextStyle(
+                      fontSize: 10.5, color: AppColors.textMuted),
+                ),
+            ],
           ),
         ],
       ),

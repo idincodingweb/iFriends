@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../models/user_model.dart';
+import '../screens/activity_screen.dart';
+import '../screens/saved_screen.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import 'user_avatar.dart';
@@ -9,6 +11,11 @@ class AppDrawerMenu extends StatelessWidget {
   final AppUser? user;
   final VoidCallback onProfileTap;
   const AppDrawerMenu({super.key, required this.user, required this.onProfileTap});
+
+  void _open(BuildContext context, Widget page) {
+    Navigator.of(context).pop();
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +40,9 @@ class AppDrawerMenu extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    user?.displayName ?? 'iFriends User',
+                    user?.displayName.isNotEmpty == true
+                        ? user!.displayName
+                        : 'iFriends User',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -51,15 +60,19 @@ class AppDrawerMenu extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 children: [
-                  _item(context, Icons.person_outline, 'Your Profile', onProfileTap),
-                  _item(context, Icons.bookmark_border, 'Saved', () {}),
+                  _item(context, Icons.person_outline, 'Your Profile',
+                      onProfileTap),
+                  _item(context, Icons.bookmark_border, 'Saved',
+                      () => _open(context, const SavedScreen())),
                   _item(context, Icons.archive_outlined, 'Archive', () {}),
-                  _item(context, Icons.history, 'Your Activity', () {}),
+                  _item(context, Icons.history, 'Your Activity',
+                      () => _open(context, const ActivityScreen())),
                   _item(context, Icons.insights_outlined, 'Insights', () {}),
                   _item(context, Icons.qr_code_2, 'QR Code', () {}),
                   const Divider(height: 24),
                   _item(context, Icons.settings_outlined, 'Settings', () {}),
-                  _item(context, Icons.switch_account_outlined, 'Switch Account', () {}),
+                  _item(context, Icons.switch_account_outlined,
+                      'Switch Account', () {}),
                   _item(
                     context,
                     Icons.logout,

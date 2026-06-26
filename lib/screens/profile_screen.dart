@@ -171,6 +171,7 @@ class _ProfileBody extends StatelessWidget {
   Widget _otherActions(BuildContext context, String myUid) {
     return StreamBuilder<AppUser?>(
       stream: FirestoreService.instance.userStream(myUid),
+      initialData: FirestoreService.instance.cachedUser(myUid),
       builder: (context, s) {
         final me = s.data;
         final following = me?.following.contains(user.uid) ?? false;

@@ -37,19 +37,23 @@ class FirestoreService {
   // to the same `users/{uid}` doc. We share a single broadcast stream per uid
   // and keep the last value in memory so new subscribers paint instantly with
   // no Firestore read and no avatar flicker.
-  final Map<String, Stream<AppUser?>> _userStreams = {};
+
   final Map<String, AppUser> _userCache = {};
 
   AppUser? cachedUser(String uid) => _userCache[uid];
 
+  /// Per-uid live stream. We deliberately return a fresh `snapshots()` stream
+  /// on each call instead of caching a broadcast stream — Firestore already
+  /// deduplicates listeners for the same document, and a cached broadcast
+  /// stream stops emitting once all its listeners disconnect (which broke the
+  /// profile follow button after navigating back, and the drawer profile
+  /// header after logout + re-login).
   Stream<AppUser?> userStream(String uid) {
-    return _userStreams.putIfAbsent(uid, () {
-      return _users.doc(uid).snapshots().map((d) {
-        if (!d.exists) return null;
-        final u = AppUser.fromMap(d.id, d.data() ?? const {});
-        _userCache[uid] = u;
-        return u;
-      }).asBroadcastStream();
+    return _users.doc(uid).snapshots().map((d) {
+      if (!d.exists) return null;
+      final u = AppUser.fromMap(d.id, d.data() ?? const {});
+      _userCache[uid] = u;
+      return u;
     });
   }
 
@@ -113,6 +117,18 @@ class FirestoreService {
         tx.update(them, {'followers': FieldValue.arrayUnion([currentUid])});
       }
     });
+    // Notify the followed user (only on new follow).
+    final meDoc = await me.get();
+    final nowFollowing =
+        List<String>.from(meDoc.data()?['following'] ?? const [])
+            .contains(targetUid);
+    if (nowFollowing) {
+      await _pushNotification(
+        toUid: targetUid,
+        fromUid: currentUid,
+        type: 'follow',
+      );
+    }
   }
 
   // ============================================================
@@ -181,15 +197,32 @@ class FirestoreService {
 
   Future<void> toggleLike({required String postId, required String uid}) async {
     final ref = _posts.doc(postId);
+    bool justLiked = false;
+    String authorId = '';
+    String postImageUrl = '';
     await _db.runTransaction((tx) async {
       final snap = await tx.get(ref);
-      final likes = List<String>.from(snap.data()?['likes'] ?? const []);
+      final data = snap.data() ?? const <String, dynamic>{};
+      authorId = (data['authorId'] ?? '') as String;
+      postImageUrl = (data['imageUrl'] ?? '') as String;
+      final likes = List<String>.from(data['likes'] ?? const []);
       if (likes.contains(uid)) {
         tx.update(ref, {'likes': FieldValue.arrayRemove([uid])});
+        justLiked = false;
       } else {
         tx.update(ref, {'likes': FieldValue.arrayUnion([uid])});
+        justLiked = true;
       }
     });
+    if (justLiked && authorId.isNotEmpty && authorId != uid) {
+      await _pushNotification(
+        toUid: authorId,
+        fromUid: uid,
+        type: 'like',
+        postId: postId,
+        postImageUrl: postImageUrl,
+      );
+    }
   }
 
   // ----- comments -----
@@ -219,12 +252,121 @@ class FirestoreService {
       'text': text,
       'parentId': parentId,
       'replyToName': replyToName,
+      'likes': <String>[],
       'createdAt': FieldValue.serverTimestamp(),
     });
     batch.update(_posts.doc(postId), {
       'commentsCount': FieldValue.increment(1),
     });
     await batch.commit();
+
+    // Resolve the post to know whom to notify and what image to show.
+    final postSnap = await _posts.doc(postId).get();
+    final postData = postSnap.data() ?? const <String, dynamic>{};
+    final postAuthorId = (postData['authorId'] ?? '') as String;
+    final postImageUrl = (postData['imageUrl'] ?? '') as String;
+
+    // Reply -> notify the parent comment author (avoid double-notify post owner).
+    String? parentAuthorId;
+    if (parentId.isNotEmpty) {
+      final pSnap = await _commentsCol(postId).doc(parentId).get();
+      parentAuthorId = (pSnap.data()?['authorId'] ?? '') as String?;
+      if (parentAuthorId != null &&
+          parentAuthorId!.isNotEmpty &&
+          parentAuthorId != author.uid) {
+        await _pushNotification(
+          toUid: parentAuthorId!,
+          fromUid: author.uid,
+          type: 'reply',
+          postId: postId,
+          commentId: c.id,
+          postImageUrl: postImageUrl,
+          text: text,
+        );
+      }
+    }
+
+    // Notify the post author if different from the commenter AND the parent.
+    if (postAuthorId.isNotEmpty &&
+        postAuthorId != author.uid &&
+        postAuthorId != parentAuthorId) {
+      await _pushNotification(
+        toUid: postAuthorId,
+        fromUid: author.uid,
+        type: parentId.isEmpty ? 'comment' : 'reply',
+        postId: postId,
+        commentId: c.id,
+        postImageUrl: postImageUrl,
+        text: text,
+      );
+    }
+
+    // Mentions: @username inside the comment text.
+    final mentioned = _extractMentions(text);
+    for (final uname in mentioned) {
+      final q = await _users
+          .where('username', isEqualTo: uname.toLowerCase())
+          .limit(1)
+          .get();
+      if (q.docs.isEmpty) continue;
+      final muid = q.docs.first.id;
+      if (muid == author.uid || muid == postAuthorId || muid == parentAuthorId) {
+        continue;
+      }
+      await _pushNotification(
+        toUid: muid,
+        fromUid: author.uid,
+        type: 'mention',
+        postId: postId,
+        commentId: c.id,
+        postImageUrl: postImageUrl,
+        text: text,
+      );
+    }
+  }
+
+  Set<String> _extractMentions(String text) {
+    final re = RegExp(r'@([a-zA-Z0-9_\.]{2,30})');
+    return re.allMatches(text).map((m) => m.group(1)!).toSet();
+  }
+
+  // ----- comment likes -----
+  Future<void> toggleCommentLike({
+    required String postId,
+    required String commentId,
+    required String uid,
+  }) async {
+    final ref = _commentsCol(postId).doc(commentId);
+    bool justLiked = false;
+    String authorId = '';
+    String postImageUrl = '';
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      final data = snap.data() ?? const <String, dynamic>{};
+      authorId = (data['authorId'] ?? '') as String;
+      final likes = List<String>.from(data['likes'] ?? const []);
+      if (likes.contains(uid)) {
+        tx.update(ref, {'likes': FieldValue.arrayRemove([uid])});
+        justLiked = false;
+      } else {
+        tx.update(ref, {'likes': FieldValue.arrayUnion([uid])});
+        justLiked = true;
+      }
+    });
+    if (justLiked && authorId.isNotEmpty && authorId != uid) {
+      final postSnap = await _posts.doc(postId).get();
+      postImageUrl =
+          (postSnap.data()?['imageUrl'] ?? '') as String;
+      await _pushNotification(
+        toUid: authorId,
+        fromUid: uid,
+        type: 'like',
+        postId: postId,
+        commentId: commentId,
+        postImageUrl: postImageUrl,
+        text: 'liked your comment',
+      );
+    }
   }
 
   // ============================================================
@@ -377,5 +519,170 @@ class FirestoreService {
     return _stories.doc(storyId).update({
       'viewers': FieldValue.arrayUnion([viewerUid]),
     });
+  }
+
+
+  // ============================================================
+  // SAVED POSTS (bookmark)
+  // ============================================================
+  Future<void> toggleSavePost({
+    required String uid,
+    required String postId,
+  }) async {
+    final ref = _users.doc(uid);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      final saved = List<String>.from(snap.data()?['saved'] ?? const []);
+      if (saved.contains(postId)) {
+        tx.update(ref, {'saved': FieldValue.arrayRemove([postId])});
+      } else {
+        tx.update(ref, {'saved': FieldValue.arrayUnion([postId])});
+      }
+    });
+  }
+
+  /// Stream the user's saved posts, newest-save first (in array order, reversed).
+  /// Firestore `whereIn` caps at 30 ids — we chunk to support more.
+  Stream<List<Post>> savedPostsStream(String uid) {
+    return userStream(uid).asyncMap((u) async {
+      final ids = (u?.saved ?? const <String>[]).reversed.toList();
+      if (ids.isEmpty) return <Post>[];
+      final out = <Post>[];
+      for (var i = 0; i < ids.length; i += 10) {
+        final chunk = ids.sublist(i, (i + 10 > ids.length) ? ids.length : i + 10);
+        final qs = await _posts
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        out.addAll(qs.docs.map(Post.fromDoc));
+      }
+      // Preserve the saved-order (newest first).
+      final byId = {for (final p in out) p.id: p};
+      return [for (final id in ids) if (byId[id] != null) byId[id]!];
+    });
+  }
+
+  // ============================================================
+  // FCM TOKEN (push)
+  // ============================================================
+  /// Persist the FCM device token on the user doc. Safe to call repeatedly.
+  /// Owner: wire firebase_messaging in main.dart once google-services.json is in
+  /// place, then call `saveFcmToken(uid, await FirebaseMessaging.instance.getToken())`.
+  Future<void> saveFcmToken(String uid, String? token) async {
+    if (token == null || token.isEmpty) return;
+    await _users.doc(uid).update({'fcmToken': token});
+  }
+
+  // ============================================================
+  // NOTIFICATIONS (in-app)
+  // ============================================================
+  CollectionReference<Map<String, dynamic>> _notifCol(String uid) =>
+      _users.doc(uid).collection('notifications');
+
+  Future<void> _pushNotification({
+    required String toUid,
+    required String fromUid,
+    required String type, // like | comment | reply | follow | mention
+    String postId = '',
+    String commentId = '',
+    String postImageUrl = '',
+    String text = '',
+  }) async {
+    if (toUid.isEmpty || toUid == fromUid) return;
+    // Hydrate sender display fields so the Activity row paints without an
+    // extra read (we still have LiveUserAvatar/Name for live updates).
+    final fromUser = _userCache[fromUid] ?? await getUser(fromUid);
+    await _notifCol(toUid).add({
+      'type': type,
+      'fromUid': fromUid,
+      'fromName': fromUser?.displayName ?? '',
+      'fromAvatarUrl': fromUser?.avatarUrl ?? '',
+      'postId': postId,
+      'commentId': commentId,
+      'postImageUrl': postImageUrl,
+      'text': text,
+      'read': false,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<List<AppNotification>> notificationsStream(String uid, {int limit = 80}) {
+    if (uid.isEmpty) return const Stream.empty();
+    return _notifCol(uid)
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((s) => s.docs.map(AppNotification.fromDoc).toList());
+  }
+
+  /// Live unread count. Used by the menu icon badge.
+  Stream<int> unreadNotificationsCount(String uid) {
+    if (uid.isEmpty) return Stream.value(0);
+    return _notifCol(uid)
+        .where('read', isEqualTo: false)
+        .snapshots()
+        .map((s) => s.docs.length);
+  }
+
+  Future<void> markAllNotificationsRead(String uid) async {
+    final q = await _notifCol(uid)
+        .where('read', isEqualTo: false)
+        .limit(300)
+        .get();
+    if (q.docs.isEmpty) return;
+    final batch = _db.batch();
+    for (final d in q.docs) {
+      batch.update(d.reference, {'read': true});
+    }
+    await batch.commit();
+  }
+}
+
+// ============================================================
+// AppNotification model (kept here so screens can import it from this file).
+// ============================================================
+class AppNotification {
+  final String id;
+  final String type; // like | comment | reply | follow | mention
+  final String fromUid;
+  final String fromName;
+  final String fromAvatarUrl;
+  final String postId;
+  final String commentId;
+  final String postImageUrl;
+  final String text;
+  final bool read;
+  final DateTime createdAt;
+
+  const AppNotification({
+    required this.id,
+    required this.type,
+    required this.fromUid,
+    required this.fromName,
+    required this.fromAvatarUrl,
+    required this.postId,
+    required this.commentId,
+    required this.postImageUrl,
+    required this.text,
+    required this.read,
+    required this.createdAt,
+  });
+
+  factory AppNotification.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final m = doc.data() ?? const <String, dynamic>{};
+    return AppNotification(
+      id: doc.id,
+      type: (m['type'] ?? '') as String,
+      fromUid: (m['fromUid'] ?? '') as String,
+      fromName: (m['fromName'] ?? '') as String,
+      fromAvatarUrl: (m['fromAvatarUrl'] ?? '') as String,
+      postId: (m['postId'] ?? '') as String,
+      commentId: (m['commentId'] ?? '') as String,
+      postImageUrl: (m['postImageUrl'] ?? '') as String,
+      text: (m['text'] ?? '') as String,
+      read: (m['read'] ?? false) as bool,
+      createdAt: (m['createdAt'] is Timestamp)
+          ? (m['createdAt'] as Timestamp).toDate()
+          : DateTime.now(),
+    );
   }
 }

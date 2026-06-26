@@ -178,7 +178,7 @@ class FeedPostCard extends StatelessWidget {
                       color: AppColors.textDark, size: 22),
                 ),
                 const Spacer(),
-                const Icon(Icons.bookmark_border, color: AppColors.textDark),
+                _BookmarkButton(postId: post.id, currentUser: currentUser),
               ],
             ),
           ),
@@ -194,5 +194,36 @@ class FeedPostCard extends StatelessWidget {
     if (d.inHours < 24) return '${d.inHours}h';
     if (d.inDays < 7) return '${d.inDays}d';
     return '${d.inDays ~/ 7}w';
+  }
+}
+
+class _BookmarkButton extends StatelessWidget {
+  final String postId;
+  final AppUser? currentUser;
+  const _BookmarkButton({required this.postId, required this.currentUser});
+
+  @override
+  Widget build(BuildContext context) {
+    final me = currentUser;
+    if (me == null) {
+      return const Icon(Icons.bookmark_border, color: AppColors.textDark);
+    }
+    return StreamBuilder<AppUser?>(
+      stream: FirestoreService.instance.userStream(me.uid),
+      initialData: FirestoreService.instance.cachedUser(me.uid) ?? me,
+      builder: (context, snap) {
+        final saved = (snap.data?.saved ?? me.saved).contains(postId);
+        return GestureDetector(
+          onTap: () => FirestoreService.instance.toggleSavePost(
+            uid: me.uid,
+            postId: postId,
+          ),
+          child: Icon(
+            saved ? Icons.bookmark : Icons.bookmark_border,
+            color: saved ? AppColors.primaryCoral : AppColors.textDark,
+          ),
+        );
+      },
+    );
   }
 }
