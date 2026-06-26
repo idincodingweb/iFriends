@@ -1,37 +1,34 @@
-# iFriends Android build fix v3
+# iFriends Android Build Fix v5
 
-Ini revisi yang bener untuk error terbaru:
+Fix untuk error AndroidX AAR metadata terbaru:
 
-```text
-Your project's Gradle version (8.4.0) is lower than Flutter's minimum supported version of 8.7.0
-```
+> Dependency androidx.* requires Android Gradle plugin 8.9.1 or higher. This build currently uses Android Gradle plugin 8.6.1.
 
-## Yang berubah dari v2
+## Isi paket
 
-- `android/gradle/wrapper/gradle-wrapper.properties` dinaikkan ke **Gradle 8.7**
-- `android/settings.gradle` dinaikkan ke **Android Gradle Plugin 8.5.2**
-- Tetap pakai deklaratif `plugins {}` agar kompatibel dengan Flutter terbaru
-- Tetap pakai Kotlin **1.9.22** untuk kompatibilitas Firebase/Auth dependency yang sebelumnya bikin D8 error
-- Tetap disable shrinker di release untuk menghindari error R8/D8 lama
+Overwrite file berikut ke repo kamu:
+
+- android/settings.gradle
+- android/build.gradle
+- android/app/build.gradle
+- android/gradle/wrapper/gradle-wrapper.properties
+
+## Versi yang dipakai
+
+- Android Gradle Plugin: 8.9.1
+- Gradle Wrapper: 8.14
+- Kotlin Android Plugin: 1.9.24
+- Google Services Plugin: 4.4.2
+- Desugar JDK Libs: 2.1.4
 
 ## Cara pakai
 
-Extract isi zip ini ke root repo `iFriends`, pilih overwrite/replace semua file.
+1. Extract zip ini.
+2. Copy folder `android/` ke root project iFriends kamu.
+3. Replace/overwrite file yang sama.
+4. Commit dan push ke GitHub.
+5. Run ulang GitHub Action.
 
-File yang akan tertimpa:
+## Catatan penting
 
-- `android/settings.gradle`
-- `android/build.gradle`
-- `android/app/build.gradle`
-- `android/gradle/wrapper/gradle-wrapper.properties`
-
-Lalu commit dan push ulang ke GitHub Action.
-
-## Versi final
-
-- Flutter: mengikuti GitHub Action kamu
-- Gradle Wrapper: **8.7**
-- Android Gradle Plugin: **8.5.2**
-- Kotlin Gradle Plugin: **1.9.22**
-- Google Services: **4.4.1**
-- Desugar JDK libs: **2.0.4**
+Kalau `namespace` atau `applicationId` project kamu bukan `com.example.ifriends`, samakan lagi dengan value lama dari project kamu.
