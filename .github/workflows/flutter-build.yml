@@ -25,7 +25,7 @@ jobs:
       - name: Setup Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.6'
+          flutter-version: '3.19.6' # Mengunci versi agar kompetibel dengan build.gradle asli lo
           channel: 'stable'
           cache: true
 
@@ -41,8 +41,8 @@ jobs:
       # ic_launcher.png with the default Flutter logo.
 
       - name: Build Release APK
-        # Tambahan --no-shrink ada di baris bawah ini buat ngebunuh error D8/Dexing
-        run: flutter build apk --release --no-shrink
+        # Flag ini wajib di 3.19.6 agar Firebase tidak crash saat dexing/shrinking
+        run: flutter build apk --release --no-shrink --no-tree-shake-icons
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
