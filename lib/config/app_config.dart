@@ -36,7 +36,7 @@ class AppConfig {
   // ---------- APPS SCRIPT (Google Drive) ----------
   /// URL hasil deploy /apps_script/Code.gs sebagai Web App.
   /// Contoh: https://script.google.com/macros/s/AKfycb.../exec
-  static const String appsScriptUrl = 'https://script.google.com/macros/s/AKfycbxA_AxxtA2nqme4GG20gMpYXim-aIf1dNRi19sSuAxszZ0gTklxFqAkSeZ7n9gU1VgP/exec';
+  static const String appsScriptUrl = 'https://script.google.com/macros/s/AKfycbyweg1rIAITwUIO9OXhodOidpm8HhFwkLR8D72Q4weukB7ayT1d6uB_rkde1cfwPkt2/exec';
 
   // Folder logical name yang dikirim ke Apps Script (mapping ke folder Drive).
   static const String folderProfiles = 'profiles';
