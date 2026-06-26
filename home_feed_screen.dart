@@ -187,7 +187,7 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
         return Transform.translate(
           offset: const Offset(0, -36),
           child: SizedBox(
-            height: 116,
+            height: 96,
             child: ListView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -235,14 +235,10 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
             if (hasStory)
               _StoryRing(
                 viewed: mine.allViewedBy(myUid),
-                child: SizedBox(
-                  width: 60,
-                  height: 60,
-                  child: LiveUserAvatar(
-                    uid: myUid,
-                    fallbackSeed: myUid,
-                    size: 60,
-                  ),
+                child: LiveUserAvatar(
+                  uid: myUid,
+                  fallbackSeed: myUid,
+                  size: 60,
                 ),
               )
             else
@@ -311,28 +307,24 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
             builder: (_) => StoryViewerScreen(stories: g.stories),
           ),
         ),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            _StoryRing(
-              viewed: viewed,
-              child: SizedBox(
-                width: 60,
-                height: 60,
-                child: LiveUserAvatar(
-                  uid: g.authorId,
-                  fallbackSeed: g.authorId,
-                  size: 60,
-                ),
+        child: _StoryRing(
+          viewed: viewed,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              LiveUserAvatar(
+                uid: g.authorId,
+                fallbackSeed: g.authorId,
+                size: 60,
               ),
-            ),
-            Positioned(
-              right: -1,
-              bottom: -1,
-              child: LiveVerifiedBadge(
-                  uid: g.authorId, size: 18, withBackground: true),
-            ),
-          ],
+              Positioned(
+                right: -1,
+                bottom: -1,
+                child: LiveVerifiedBadge(
+                    uid: g.authorId, size: 18, withBackground: true),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -341,7 +333,7 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
     // ----- filter tabs -----
   Widget _tabsRow() {
     return Transform.translate(
-      offset: const Offset(0, -12),
+      offset: const Offset(0, -28),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 16),
         padding: const EdgeInsets.all(6),
@@ -519,7 +511,7 @@ class _StoryRingState extends State<_StoryRing>
           shape: BoxShape.circle,
           color: Colors.white,
         ),
-        child: ClipOval(child: widget.child),
+        child: widget.child,
       ),
     );
   }

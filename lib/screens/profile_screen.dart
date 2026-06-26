@@ -52,22 +52,25 @@ class _ProfileBody extends StatelessWidget {
     return CustomScrollView(
       slivers: [
         SliverToBoxAdapter(child: _header(context)),
-        // Avatar overlaps the cover/sheet boundary: shift content up by half avatar.
         SliverToBoxAdapter(
-          child: Transform.translate(
-            offset: const Offset(0, -_avatarSize / 2 - 8),
+          // Render below the avatar (which already sits over the cover).
+          // No negative translate -> name/username are never obscured.
+          child: Padding(
+            padding: const EdgeInsets.only(top: 14),
             child: Column(
               children: [
                 _identity(),
                 const SizedBox(height: 14),
                 _statsPill(),
-                const SizedBox(height: 16),
-                _bio(),
                 if (!isMe && myUid != null) ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   _otherActions(context, myUid),
                 ],
-                const SizedBox(height: 16),
+                if (user.bio.isNotEmpty || user.location.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _bio(),
+                ],
+                const SizedBox(height: 18),
               ],
             ),
           ),
@@ -315,20 +318,23 @@ class _ProfileBody extends StatelessWidget {
       return const SizedBox.shrink();
     }
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           if (user.bio.isNotEmpty)
             Text(user.bio,
+                textAlign: TextAlign.center,
                 style: const TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w500,
+                    height: 1.4,
                     color: AppColors.textDark)),
           if (user.location.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 4),
+              padding: const EdgeInsets.only(top: 6),
               child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(Icons.location_on_outlined,
                       size: 16, color: AppColors.textMuted),
@@ -356,55 +362,94 @@ class _ProfileBody extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
+                flex: 3,
                 child: GestureDetector(
                   onTap: () => FirestoreService.instance.toggleFollow(
                     currentUid: myUid,
                     targetUid: user.uid,
                   ),
-                  child: Container(
-                    height: 46,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    height: 42,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       gradient: following ? null : AppColors.vibrant,
                       color: following ? AppColors.softBg : null,
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(22),
+                      border: following
+                          ? Border.all(
+                              color: Colors.black.withOpacity(.08))
+                          : null,
                     ),
-                    child: Text(
-                      following ? 'Following' : 'Follow',
-                      style: TextStyle(
-                        color: following
-                            ? AppColors.textDark
-                            : Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          following ? Icons.check : Icons.person_add_alt_1,
+                          size: 16,
+                          color: following
+                              ? AppColors.textDark
+                              : Colors.white,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          following ? 'Following' : 'Follow',
+                          style: TextStyle(
+                            color: following
+                                ? AppColors.textDark
+                                : Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              GestureDetector(
-                onTap: () async {
-                  final chat = await FirestoreService.instance
-                      .ensureChat(myUid, user.uid);
-                  if (!context.mounted) return;
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ChatScreen(
-                        chatId: chat.id,
-                        otherUser: user,
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: GestureDetector(
+                  onTap: () async {
+                    final chat = await FirestoreService.instance
+                        .ensureChat(myUid, user.uid);
+                    if (!context.mounted) return;
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ChatScreen(
+                          chatId: chat.id,
+                          otherUser: user,
+                        ),
                       ),
+                    );
+                  },
+                  child: Container(
+                    height: 42,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.softBg,
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                          color: Colors.black.withOpacity(.08)),
                     ),
-                  );
-                },
-                child: Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: AppColors.softBg,
-                    borderRadius: BorderRadius.circular(14),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.chat_bubble_outline,
+                            size: 16, color: AppColors.textDark),
+                        SizedBox(width: 6),
+                        Text(
+                          'Message',
+                          style: TextStyle(
+                            color: AppColors.textDark,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: const Icon(Icons.send,
-                      color: AppColors.primaryCoral, size: 20),
                 ),
               ),
             ],

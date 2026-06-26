@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/user_model.dart';
 import '../screens/activity_screen.dart';
+import '../screens/archive_screen.dart';
 import '../screens/saved_screen.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
@@ -64,7 +65,7 @@ class AppDrawerMenu extends StatelessWidget {
                       onProfileTap),
                   _item(context, Icons.bookmark_border, 'Saved',
                       () => _open(context, const SavedScreen())),
-                  _item(context, Icons.archive_outlined, 'Archive', () {}),
+                  _item(context, Icons.archive_outlined, 'Archive', () => _open(context, const ArchiveScreen())),
                   _item(context, Icons.history, 'Your Activity',
                       () => _open(context, const ActivityScreen())),
                   _item(context, Icons.insights_outlined, 'Insights', () {}),

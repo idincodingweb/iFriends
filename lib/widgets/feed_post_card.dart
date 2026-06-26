@@ -83,6 +83,24 @@ class FeedPostCard extends StatelessWidget {
                   },
                 ),
                 ListTile(
+                  leading: const Icon(Icons.archive_outlined),
+                  title: const Text('Archive post'),
+                  subtitle: const Text(
+                    'Hide from your feed and profile. You can restore it later.',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(sheetCtx);
+                    await FirestoreService.instance
+                        .setPostArchived(post.id, true);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Post archived')),
+                      );
+                    }
+                  },
+                ),
+                ListTile(
                   leading: const Icon(Icons.delete_outline, color: Colors.red),
                   title: const Text('Delete post',
                       style: TextStyle(color: Colors.red)),

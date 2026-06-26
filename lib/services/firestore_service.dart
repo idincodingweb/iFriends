@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../models/user_model.dart';
@@ -249,6 +251,99 @@ class FirestoreService {
     await batch.commit();
   }
 
+  /// Move a post to the user's archive. Archived posts are hidden from
+  /// the main feed and profile grid but still readable via the archive screen.
+  Future<void> setPostArchived(String postId, bool archived) {
+    return _posts.doc(postId).update({'archived': archived});
+  }
+
+  /// Stream of the user's archived posts, newest first.
+  Stream<List<Post>> archivedPostsStream(String uid) {
+    return _posts
+        .where('authorId', isEqualTo: uid)
+        .snapshots()
+        .map((s) {
+      final list = s.docs
+          .map(Post.fromDoc)
+          .where((p) => p.archived)
+          .toList();
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return list;
+    });
+  }
+
+  /// Stream of all activity the user produced (posts, likes, comments),
+  /// newest first. Used by the "Your Activity" tab.
+  Stream<List<UserActivity>> myActivityStream(String uid, {int limit = 50}) {
+    if (uid.isEmpty) return const Stream.empty();
+    final postsAuthored = _posts
+        .where('authorId', isEqualTo: uid)
+        .snapshots()
+        .map((s) => s.docs.map(Post.fromDoc).where((p) => !p.archived).map(
+              (p) => UserActivity(
+                type: 'post',
+                createdAt: p.createdAt,
+                postId: p.id,
+                postImageUrl: p.imageUrl,
+                text: p.caption,
+              ),
+            ));
+    final postsLiked = _posts
+        .where('likes', arrayContains: uid)
+        .snapshots()
+        .map((s) => s.docs.map(Post.fromDoc).map(
+              (p) => UserActivity(
+                type: 'like',
+                createdAt: p.createdAt,
+                postId: p.id,
+                postImageUrl: p.imageUrl,
+                text: p.caption,
+              ),
+            ));
+    final commentsAuthored = _db
+        .collectionGroup('comments')
+        .where('authorId', isEqualTo: uid)
+        .snapshots()
+        .map((s) => s.docs.map((d) {
+              final m = d.data();
+              final parentPostId = d.reference.parent.parent?.id ?? '';
+              final ts = m['createdAt'];
+              final created = ts is Timestamp ? ts.toDate() : DateTime.now();
+              return UserActivity(
+                type: 'comment',
+                createdAt: created,
+                postId: parentPostId,
+                postImageUrl: '',
+                text: (m['text'] ?? '') as String,
+              );
+            }));
+    // Fan-in: rebuild merged list whenever any source emits.
+    final List<UserActivity> p1 = [];
+    final List<UserActivity> p2 = [];
+    final List<UserActivity> p3 = [];
+    final controller = StreamController<List<UserActivity>>();
+    void emit() {
+      final all = [...p1, ...p2, ...p3];
+      all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      controller.add(all.take(limit).toList());
+    }
+    final s1 = postsAuthored.listen((v) { p1
+      ..clear()
+      ..addAll(v); emit(); });
+    final s2 = postsLiked.listen((v) { p2
+      ..clear()
+      ..addAll(v); emit(); });
+    final s3 = commentsAuthored.listen((v) { p3
+      ..clear()
+      ..addAll(v); emit(); });
+    controller.onCancel = () async {
+      await s1.cancel();
+      await s2.cancel();
+      await s3.cancel();
+    };
+    return controller.stream;
+  }
+
   /// Posts tagged with [tag] (case-insensitive), newest first. Index-free:
   /// arrayContains + in-memory sort avoids a composite index.
   Stream<List<Post>> hashtagPostsStream(String tag) {
@@ -269,7 +364,7 @@ class FirestoreService {
         .orderBy('createdAt', descending: true)
         .limit(limit)
         .snapshots()
-        .map((s) => s.docs.map(Post.fromDoc).toList());
+        .map((s) => s.docs.map(Post.fromDoc).where((p) => !p.archived).toList());
   }
 
   Stream<List<Post>> userPostsStream(String uid) {
@@ -287,8 +382,9 @@ class FirestoreService {
         })
         .map((s) {
           final list = s.docs.map(Post.fromDoc).toList();
-          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-          return list;
+          final visible = list.where((p) => !p.archived).toList();
+          visible.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return visible;
         });
   }
 
@@ -858,4 +954,24 @@ class AppNotification {
           : DateTime.now(),
     );
   }
+}
+
+
+// ============================================================
+// UserActivity model — merged timeline of a user's own actions.
+// ============================================================
+class UserActivity {
+  final String type; // 'post' | 'like' | 'comment'
+  final DateTime createdAt;
+  final String postId;
+  final String postImageUrl;
+  final String text;
+
+  const UserActivity({
+    required this.type,
+    required this.createdAt,
+    required this.postId,
+    required this.postImageUrl,
+    required this.text,
+  });
 }

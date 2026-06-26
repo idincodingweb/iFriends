@@ -14,6 +14,7 @@ class Post {
   final int commentsCount;
   final DateTime createdAt;
   final DateTime? editedAt;
+  final bool archived;
 
   const Post({
     required this.id,
@@ -29,6 +30,7 @@ class Post {
     required this.commentsCount,
     required this.createdAt,
     this.editedAt,
+    this.archived = false,
   });
 
   int get likesCount => likes.length;
@@ -66,6 +68,7 @@ class Post {
       editedAt: (m['editedAt'] is Timestamp)
           ? (m['editedAt'] as Timestamp).toDate()
           : null,
+      archived: (m['archived'] ?? false) as bool,
     );
   }
 }
