@@ -4,14 +4,19 @@
 .packages
 .pub-cache/
 .pub/
+
+# Folder build wajib di-ignore, tapi folder platform JANGAN
 build/
+
+# IDE and lokal settings
 .idea/
 .vscode/
 *.iml
-android/
-ios/
-linux/
-macos/
-windows/
-web/
-ephemeral/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Amankan file rahasia lokal lo
+.env

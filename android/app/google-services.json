@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "147677869835",
+    "project_id": "ifriends-app-e11da",
+    "storage_bucket": "ifriends-app-e11da.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:147677869835:android:20d2479f0ea86317ff140e",
+        "android_client_info": {
+          "package_name": "com.ifriends.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDd-QVyzhriaQUbi1X48pMr5DSx9JtHRUw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
