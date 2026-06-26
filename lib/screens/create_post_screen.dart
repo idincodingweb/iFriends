@@ -18,33 +18,59 @@ class CreatePostScreen extends StatefulWidget {
 
 class _CreatePostScreenState extends State<CreatePostScreen> {
   final _caption = TextEditingController();
-  File? _image;
+  final List<File> _images = [];
   bool _posting = false;
   String? _error;
 
-  Future<void> _pick(ImageSource s) async {
-    final x = await ImagePicker().pickImage(
-      source: s,
+  static const int _maxImages = 10;
+
+  Future<void> _pickFromGallery() async {
+    final xs = await ImagePicker().pickMultiImage(
       maxWidth: 1600,
       imageQuality: 85,
     );
-    if (x != null) setState(() => _image = File(x.path));
+    if (xs.isEmpty) return;
+    setState(() {
+      for (final x in xs) {
+        if (_images.length >= _maxImages) break;
+        _images.add(File(x.path));
+      }
+    });
   }
 
+  Future<void> _pickFromCamera() async {
+    final x = await ImagePicker().pickImage(
+      source: ImageSource.camera,
+      maxWidth: 1600,
+      imageQuality: 85,
+    );
+    if (x == null) return;
+    setState(() {
+      if (_images.length < _maxImages) _images.add(File(x.path));
+    });
+  }
+
+  void _removeAt(int i) => setState(() => _images.removeAt(i));
+
   Future<void> _submit() async {
-    if (_image == null) return;
+    if (_images.isEmpty) return;
     setState(() {
       _posting = true;
       _error = null;
     });
     try {
-      final url = await DriveService.instance.uploadImage(
-        file: _image!,
-        folder: AppConfig.folderPosts,
-      );
+      // Upload each selected image to Drive (multi-image carousel support).
+      final urls = <String>[];
+      for (final f in _images) {
+        final url = await DriveService.instance.uploadImage(
+          file: f,
+          folder: AppConfig.folderPosts,
+        );
+        urls.add(url);
+      }
       await FirestoreService.instance.createPost(
         author: widget.currentUser,
-        imageUrl: url,
+        imageUrls: urls,
         caption: _caption.text.trim(),
       );
       if (mounted) Navigator.of(context).pop();
@@ -57,7 +83,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final canPost = _image != null && !_posting;
+    final canPost = _images.isNotEmpty && !_posting;
     return Scaffold(
       backgroundColor: AppColors.bgWhite,
       body: SafeArea(
@@ -74,8 +100,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   ),
                   const Spacer(),
                   ShaderMask(
-                    shaderCallback: (b) =>
-                        AppColors.vibrant.createShader(b),
+                    shaderCallback: (b) => AppColors.vibrant.createShader(b),
                     child: const Text(
                       'New Post',
                       style: TextStyle(
@@ -123,11 +148,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                       const SizedBox(height: 14),
                       Row(
                         children: [
-                          _pickBtn(Icons.photo, 'Gallery',
-                              () => _pick(ImageSource.gallery)),
+                          _pickBtn(Icons.photo, 'Gallery', _pickFromGallery),
                           const SizedBox(width: 10),
-                          _pickBtn(Icons.camera_alt, 'Camera',
-                              () => _pick(ImageSource.camera)),
+                          _pickBtn(Icons.camera_alt, 'Camera', _pickFromCamera),
                         ],
                       ),
                       const SizedBox(height: 18),
@@ -149,10 +172,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                         Text(_error!,
                             style: const TextStyle(color: Colors.red)),
                       ],
-                      if (_image == null) ...[
+                      if (_images.isEmpty) ...[
                         const SizedBox(height: 12),
                         const Text(
-                          'Pilih gambar dulu untuk mengaktifkan tombol Post.',
+                          'Pilih satu atau beberapa gambar untuk mengaktifkan tombol Post.',
                           style: TextStyle(
                               color: AppColors.textMuted, fontSize: 12),
                         ),
@@ -169,31 +192,96 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   }
 
   Widget _imageSection() {
-    return GestureDetector(
-      onTap: () => _pick(ImageSource.gallery),
-      child: Container(
-        height: 280,
-        width: double.infinity,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          gradient: _image == null ? AppColors.sunset : null,
-          color: _image == null ? null : AppColors.softBg,
+    if (_images.isEmpty) {
+      return GestureDetector(
+        onTap: _pickFromGallery,
+        child: Container(
+          height: 280,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            gradient: AppColors.sunset,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.add_photo_alternate, size: 70, color: Colors.white),
+                SizedBox(height: 8),
+                Text('Tap to add photos',
+                    style: TextStyle(color: Colors.white)),
+              ],
+            ),
+          ),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: _image == null
-            ? const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.add_photo_alternate,
-                        size: 70, color: Colors.white),
-                    SizedBox(height: 8),
-                    Text('Tap to add a photo',
-                        style: TextStyle(color: Colors.white)),
-                  ],
+      );
+    }
+    return SizedBox(
+      height: 280,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _images.length + 1,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (_, i) {
+          if (i == _images.length) {
+            return GestureDetector(
+              onTap: _images.length >= _maxImages ? null : _pickFromGallery,
+              child: Container(
+                width: 110,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  color: AppColors.softBg,
                 ),
-              )
-            : Image.file(_image!, fit: BoxFit.cover),
+                child: Icon(Icons.add,
+                    size: 40,
+                    color: _images.length >= _maxImages
+                        ? AppColors.textMuted
+                        : AppColors.primaryCoral),
+              ),
+            );
+          }
+          return Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: Image.file(_images[i],
+                    width: 220, height: 280, fit: BoxFit.cover),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: GestureDetector(
+                  onTap: () => _removeAt(i),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.55),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.close,
+                        color: Colors.white, size: 18),
+                  ),
+                ),
+              ),
+              Positioned(
+                bottom: 8,
+                left: 8,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(.55),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text('${i + 1}/${_images.length}',
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 11)),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -213,8 +301,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
             children: [
               Icon(i, color: AppColors.primaryCoral),
               const SizedBox(width: 8),
-              Text(label,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
             ],
           ),
         ),

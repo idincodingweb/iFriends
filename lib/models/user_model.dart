@@ -14,6 +14,7 @@ class AppUser {
   final List<String> saved; // postIds the user bookmarked
   final String fcmToken; // for push (filled when firebase_messaging is wired)
   final DateTime createdAt;
+  final DateTime? usernameUpdatedAt; // last time the @username was changed
 
   const AppUser({
     required this.uid,
@@ -29,9 +30,31 @@ class AppUser {
     this.saved = const [],
     this.fcmToken = '',
     required this.createdAt,
+    this.usernameUpdatedAt,
   });
 
   bool get isVerified => role == 'verified';
+
+  /// How many days the user must wait before changing the username again.
+  /// One change per [cooldownDays]. Returns 0 when a change is allowed now.
+  static const int usernameCooldownDays = 14;
+
+  DateTime? get nextUsernameChangeAt => usernameUpdatedAt
+      ?.add(const Duration(days: usernameCooldownDays));
+
+  bool get canChangeUsername {
+    final next = nextUsernameChangeAt;
+    if (next == null) return true;
+    return DateTime.now().isAfter(next);
+  }
+
+  int get daysUntilUsernameChange {
+    final next = nextUsernameChangeAt;
+    if (next == null) return 0;
+    final diff = next.difference(DateTime.now());
+    if (diff.isNegative) return 0;
+    return diff.inHours ~/ 24 + 1;
+  }
 
   factory AppUser.fromMap(String uid, Map<String, dynamic> m) {
     return AppUser(
@@ -50,6 +73,9 @@ class AppUser {
       createdAt: (m['createdAt'] is Timestamp)
           ? (m['createdAt'] as Timestamp).toDate()
           : DateTime.now(),
+      usernameUpdatedAt: (m['usernameUpdatedAt'] is Timestamp)
+          ? (m['usernameUpdatedAt'] as Timestamp).toDate()
+          : null,
     );
   }
 
@@ -66,6 +92,8 @@ class AppUser {
         'saved': saved,
         'fcmToken': fcmToken,
         'createdAt': Timestamp.fromDate(createdAt),
+        if (usernameUpdatedAt != null)
+          'usernameUpdatedAt': Timestamp.fromDate(usernameUpdatedAt!),
       };
 
   AppUser copyWith({
@@ -88,6 +116,7 @@ class AppUser {
       saved: saved,
       fcmToken: fcmToken,
       createdAt: createdAt,
+      usernameUpdatedAt: usernameUpdatedAt,
     );
   }
 }

@@ -20,6 +20,8 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _name =
       TextEditingController(text: widget.user.displayName);
+  late final TextEditingController _username =
+      TextEditingController(text: widget.user.username);
   late final TextEditingController _bio =
       TextEditingController(text: widget.user.bio);
   late final TextEditingController _location =
@@ -45,6 +47,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _error = null;
     });
     try {
+      // Username change first (enforces 14-day cooldown + uniqueness). Throws
+      // a user-facing Exception that we surface inline.
+      final newUsername =
+          _username.text.trim().toLowerCase().replaceAll('@', '');
+      if (newUsername != widget.user.username) {
+        await FirestoreService.instance.updateUsername(
+          uid: widget.user.uid,
+          newUsername: newUsername,
+        );
+      }
       String? avatarUrl;
       if (_pickedAvatar != null) {
         avatarUrl = await DriveService.instance.uploadImage(
@@ -61,11 +73,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
-      setState(() => _error = e.toString());
+      setState(() =>
+          _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -110,6 +124,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             const SizedBox(height: 20),
             _field(_name, 'Display name'),
             const SizedBox(height: 12),
+            _field(
+              _username,
+              'Username',
+              enabled: widget.user.canChangeUsername,
+              prefix: '@',
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  widget.user.canChangeUsername
+                      ? 'Username bisa diganti 1x setiap ${AppUser.usernameCooldownDays} hari.'
+                      : 'Username baru bisa diganti lagi dalam ${widget.user.daysUntilUsernameChange} hari.',
+                  style: const TextStyle(
+                      color: AppColors.textMuted, fontSize: 12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             _field(_bio, 'Bio', maxLines: 3),
             const SizedBox(height: 12),
             _field(_location, 'Location'),
@@ -152,12 +186,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  Widget _field(TextEditingController c, String label, {int maxLines = 1}) {
+  Widget _field(TextEditingController c, String label,
+      {int maxLines = 1, bool enabled = true, String? prefix}) {
     return TextField(
       controller: c,
       maxLines: maxLines,
+      enabled: enabled,
       decoration: InputDecoration(
         labelText: label,
+        prefixText: prefix,
         filled: true,
         fillColor: AppColors.softBg,
         border: OutlineInputBorder(

@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -7,7 +6,10 @@ import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/linked_text.dart';
 import '../widgets/live_user_avatar.dart';
+import '../widgets/post_image_carousel.dart';
+import 'edit_post_screen.dart';
 import 'share_to_chat_screen.dart';
 
 class PostDetailScreen extends StatefulWidget {
@@ -87,6 +89,29 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
+  Future<void> _confirmDeletePost() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete post?'),
+        content: const Text('This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await FirestoreService.instance.deletePost(widget.postId);
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -106,9 +131,38 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             builder: (context, s) {
               if (!s.hasData || !s.data!.exists) return const SizedBox.shrink();
               final p = Post.fromDoc(s.data!);
-              return IconButton(
-                icon: const Icon(Icons.send_outlined),
-                onPressed: () => ShareToChatSheet.show(context, p),
+              final myUid = AuthService.instance.currentUser?.uid;
+              final isOwner = myUid != null && myUid == p.authorId;
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.send_outlined),
+                    onPressed: () => ShareToChatSheet.show(context, p),
+                  ),
+                  if (isOwner)
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert),
+                      onSelected: (v) async {
+                        if (v == 'edit') {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => EditPostScreen(
+                                postId: p.id,
+                                initialCaption: p.caption,
+                              ),
+                            ),
+                          );
+                        } else if (v == 'delete') {
+                          await _confirmDeletePost();
+                        }
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'edit', child: Text('Edit caption')),
+                        PopupMenuItem(value: 'delete', child: Text('Delete post')),
+                      ],
+                    ),
+                ],
               );
             },
           ),
@@ -156,19 +210,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(18),
-                      child: post.imageUrl.isNotEmpty
-                          ? CachedNetworkImage(
-                              imageUrl: post.imageUrl, fit: BoxFit.cover)
-                          : Container(
-                              height: 240,
-                              decoration: const BoxDecoration(
-                                  gradient: AppColors.sunset),
-                            ),
+                    PostImageCarousel(
+                      images: post.images,
+                      height: 300,
                     ),
                     const SizedBox(height: 10),
-                    if (post.caption.isNotEmpty) Text(post.caption),
+                    if (post.caption.isNotEmpty) LinkedText(post.caption),
                     const SizedBox(height: 16),
                     const Divider(),
                     const Text('Comments',
@@ -359,6 +406,73 @@ class _CommentRow extends StatelessWidget {
     required this.onReply,
   });
 
+  Widget _action(String label, VoidCallback onTap, {Color? color}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Text(label,
+          style: TextStyle(
+              color: color ?? AppColors.textMuted,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600)),
+    );
+  }
+
+  Future<void> _editComment(BuildContext context) async {
+    final ctrl = TextEditingController(text: comment.text);
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit comment'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: null,
+          decoration: const InputDecoration(hintText: 'Edit your comment...'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (text == null || text.isEmpty || text == comment.text) return;
+    await FirestoreService.instance.updateComment(
+      postId: postId,
+      commentId: comment.id,
+      text: text,
+    );
+  }
+
+  Future<void> _deleteComment(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete comment?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await FirestoreService.instance.deleteComment(
+      postId: postId,
+      commentId: comment.id,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final indent = (depth.clamp(0, 4)) * 28.0;
@@ -393,32 +507,41 @@ class _CommentRow extends StatelessWidget {
                 ),
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
-                  child: RichText(
-                    text: TextSpan(
-                      style: const TextStyle(
-                          fontSize: 13.5, color: AppColors.textDark),
-                      children: [
-                        if (comment.replyToName.isNotEmpty)
-                          TextSpan(
-                            text: '@${comment.replyToName} ',
-                            style: const TextStyle(
-                                color: AppColors.primaryCoral,
-                                fontWeight: FontWeight.w600),
-                          ),
-                        TextSpan(text: comment.text),
-                      ],
-                    ),
+                  child: LinkedText(
+                    comment.text,
+                    style: const TextStyle(
+                        fontSize: 13.5, color: AppColors.textDark),
+                    prefix: comment.replyToName.isNotEmpty
+                        ? [
+                            TextSpan(
+                              text: '@${comment.replyToName} ',
+                              style: const TextStyle(
+                                  color: AppColors.primaryCoral,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ]
+                        : const [],
                   ),
                 ),
-                GestureDetector(
-                  onTap: () => onReply(comment),
-                  child: const Padding(
-                    padding: EdgeInsets.only(top: 4),
-                    child: Text('Reply',
-                        style: TextStyle(
-                            color: AppColors.textMuted,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600)),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    children: [
+                      _action('Reply', () => onReply(comment)),
+                      if (comment.isEdited) ...[
+                        const SizedBox(width: 10),
+                        const Text('edited',
+                            style: TextStyle(
+                                color: AppColors.textMuted, fontSize: 11)),
+                      ],
+                      if (comment.authorId == myUid) ...[
+                        const SizedBox(width: 14),
+                        _action('Edit', () => _editComment(context)),
+                        const SizedBox(width: 14),
+                        _action('Delete', () => _deleteComment(context),
+                            color: Colors.red),
+                      ],
+                    ],
                   ),
                 ),
               ],

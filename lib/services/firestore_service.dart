@@ -72,6 +72,58 @@ class FirestoreService {
     return _users.doc(uid).update(m);
   }
 
+  Future<AppUser?> getUserByUsername(String username) async {
+    final uname = username.trim().toLowerCase().replaceAll('@', '');
+    if (uname.isEmpty) return null;
+    final q = await _users
+        .where('username', isEqualTo: uname)
+        .limit(1)
+        .get();
+    if (q.docs.isEmpty) return null;
+    final d = q.docs.first;
+    final u = AppUser.fromMap(d.id, d.data());
+    _userCache[u.uid] = u;
+    return u;
+  }
+
+  /// Change the @username. Enforces format, uniqueness and a 14-day cooldown
+  /// (one change per [AppUser.usernameCooldownDays]). Throws [Exception] with a
+  /// user-facing message on any rule violation.
+  Future<void> updateUsername({
+    required String uid,
+    required String newUsername,
+  }) async {
+    final uname = newUsername.trim().toLowerCase().replaceAll('@', '');
+    if (uname.length < 3) {
+      throw Exception('Username minimal 3 karakter.');
+    }
+    if (!RegExp(r'^[a-z0-9_\.]+$').hasMatch(uname)) {
+      throw Exception(
+          'Username hanya boleh huruf, angka, titik, dan underscore.');
+    }
+    final doc = await _users.doc(uid).get();
+    final data = doc.data() ?? const <String, dynamic>{};
+    final current = (data['username'] ?? '') as String;
+    if (uname == current) return; // no-op
+    final lastTs = data['usernameUpdatedAt'];
+    if (lastTs is Timestamp) {
+      final next =
+          lastTs.toDate().add(const Duration(days: AppUser.usernameCooldownDays));
+      if (DateTime.now().isBefore(next)) {
+        final days = next.difference(DateTime.now()).inHours ~/ 24 + 1;
+        throw Exception(
+            'Username hanya bisa diganti 1x per ${AppUser.usernameCooldownDays} hari. Coba lagi dalam $days hari.');
+      }
+    }
+    if (await isUsernameTaken(uname)) {
+      throw Exception('Username "$uname" sudah dipakai.');
+    }
+    await _users.doc(uid).update({
+      'username': uname,
+      'usernameUpdatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<List<AppUser>> searchUsers(String query) async {
     final q = query.trim().toLowerCase().replaceAll('@', '');
     if (q.isEmpty) return [];
@@ -138,21 +190,76 @@ class FirestoreService {
 
   Future<String> createPost({
     required AppUser author,
-    required String imageUrl,
+    String imageUrl = '',
+    List<String> imageUrls = const [],
     required String caption,
   }) async {
+    final urls = imageUrls.isNotEmpty
+        ? imageUrls
+        : (imageUrl.isNotEmpty ? <String>[imageUrl] : <String>[]);
+    final cover = urls.isNotEmpty ? urls.first : imageUrl;
     final doc = await _posts.add({
       'authorId': author.uid,
       'authorName': author.displayName,
       'authorUsername': author.username,
       'authorAvatarUrl': author.avatarUrl,
-      'imageUrl': imageUrl,
+      'imageUrl': cover,
+      'imageUrls': urls,
       'caption': caption,
+      'hashtags': _extractHashtags(caption),
       'likes': <String>[],
       'commentsCount': 0,
       'createdAt': FieldValue.serverTimestamp(),
     });
+    // Notify users @mentioned in the caption.
+    await _notifyMentionsInText(
+      text: caption,
+      fromUid: author.uid,
+      exclude: const <String>{},
+      postId: doc.id,
+      postImageUrl: cover,
+    );
     return doc.id;
+  }
+
+  /// Update an existing post's caption (re-parses hashtags). Image editing is
+  /// intentionally out of scope to keep uploads simple.
+  Future<void> updatePost({
+    required String postId,
+    required String caption,
+  }) async {
+    await _posts.doc(postId).update({
+      'caption': caption,
+      'hashtags': _extractHashtags(caption),
+      'editedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Delete a post and all of its comments. Best-effort; large comment threads
+  /// beyond a single batch are not expected for this app's scale.
+  Future<void> deletePost(String postId) async {
+    final comments = await _commentsCol(postId).limit(450).get();
+    final batch = _db.batch();
+    for (final d in comments.docs) {
+      batch.delete(d.reference);
+    }
+    batch.delete(_posts.doc(postId));
+    await batch.commit();
+  }
+
+  /// Posts tagged with [tag] (case-insensitive), newest first. Index-free:
+  /// arrayContains + in-memory sort avoids a composite index.
+  Stream<List<Post>> hashtagPostsStream(String tag) {
+    final t = tag.trim().toLowerCase().replaceAll('#', '');
+    if (t.isEmpty) return Stream.value(const <Post>[]);
+    return _posts
+        .where('hashtags', arrayContains: t)
+        .snapshots()
+        .map((s) {
+      final list = s.docs.map(Post.fromDoc).toList();
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return list;
+    });
   }
 
   Stream<List<Post>> feedStream({int limit = 50}) {
@@ -328,6 +435,70 @@ class FirestoreService {
   Set<String> _extractMentions(String text) {
     final re = RegExp(r'@([a-zA-Z0-9_\.]{2,30})');
     return re.allMatches(text).map((m) => m.group(1)!).toSet();
+  }
+
+  /// Parse `#topik` tokens from text -> lowercased, de-duplicated list.
+  List<String> _extractHashtags(String text) {
+    final re = RegExp(r'#([a-zA-Z0-9_]{1,50})');
+    final set = <String>{};
+    for (final m in re.allMatches(text)) {
+      set.add(m.group(1)!.toLowerCase());
+    }
+    return set.toList();
+  }
+
+  /// Send a 'mention' notification to every valid @username in [text],
+  /// skipping the author and any uids in [exclude].
+  Future<void> _notifyMentionsInText({
+    required String text,
+    required String fromUid,
+    required Set<String> exclude,
+    String postId = '',
+    String commentId = '',
+    String postImageUrl = '',
+  }) async {
+    final mentioned = _extractMentions(text);
+    for (final uname in mentioned) {
+      final q = await _users
+          .where('username', isEqualTo: uname.toLowerCase())
+          .limit(1)
+          .get();
+      if (q.docs.isEmpty) continue;
+      final muid = q.docs.first.id;
+      if (muid == fromUid || exclude.contains(muid)) continue;
+      await _pushNotification(
+        toUid: muid,
+        fromUid: fromUid,
+        type: 'mention',
+        postId: postId,
+        commentId: commentId,
+        postImageUrl: postImageUrl,
+        text: text,
+      );
+    }
+  }
+
+  Future<void> updateComment({
+    required String postId,
+    required String commentId,
+    required String text,
+  }) async {
+    await _commentsCol(postId).doc(commentId).update({
+      'text': text,
+      'editedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> deleteComment({
+    required String postId,
+    required String commentId,
+  }) async {
+    final batch = _db.batch();
+    batch.delete(_commentsCol(postId).doc(commentId));
+    batch.update(_posts.doc(postId), {
+      'commentsCount': FieldValue.increment(-1),
+    });
+    await batch.commit();
   }
 
   // ----- comment likes -----

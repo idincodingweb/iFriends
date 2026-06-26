@@ -1,19 +1,21 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../models/post_model.dart';
 import '../models/user_model.dart';
+import '../screens/edit_post_screen.dart';
 import '../screens/post_detail_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/share_to_chat_screen.dart';
 import '../services/firestore_service.dart';
 import '../theme/app_theme.dart';
+import 'linked_text.dart';
 import 'live_user_avatar.dart';
+import 'post_image_carousel.dart';
 
 class FeedPostCard extends StatelessWidget {
   final Post post;
   final AppUser? currentUser;
-  const FeedPostCard({super.key, required this.post, required this.currentUser});
+  const FeedPostCard({super.key, required this.post, this.currentUser});
 
   void _openProfile(BuildContext context) {
     if (post.authorId.isEmpty) return;
@@ -42,6 +44,82 @@ class FeedPostCard extends StatelessWidget {
     final me = currentUser;
     if (me == null) return;
     FirestoreService.instance.toggleLike(postId: post.id, uid: me.uid);
+  }
+
+  void _showMenu(BuildContext context) {
+    final isOwner = currentUser != null && currentUser!.uid == post.authorId;
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.send_outlined),
+                title: const Text('Share to chat'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  ShareToChatSheet.show(context, post);
+                },
+              ),
+              if (isOwner) ...[
+                ListTile(
+                  leading: const Icon(Icons.edit_outlined),
+                  title: const Text('Edit caption'),
+                  onTap: () {
+                    Navigator.pop(sheetCtx);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => EditPostScreen(
+                          postId: post.id,
+                          initialCaption: post.caption,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text('Delete post',
+                      style: TextStyle(color: Colors.red)),
+                  onTap: () async {
+                    Navigator.pop(sheetCtx);
+                    await _confirmDelete(context);
+                  },
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete post?'),
+        content: const Text('This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await FirestoreService.instance.deletePost(post.id);
+    }
   }
 
   @override
@@ -86,7 +164,8 @@ class FeedPostCard extends StatelessWidget {
                       uid: post.authorId,
                       fallbackDisplayName: post.authorName,
                       fallbackUsername: post.authorUsername,
-                      trailing: ' · ${_ago(post.createdAt)}',
+                      trailing: ' · ${_ago(post.createdAt)}'
+                          '${post.isEdited ? ' · edited' : ''}',
                       nameStyle:
                           const TextStyle(fontWeight: FontWeight.w600),
                       subStyle: const TextStyle(
@@ -94,50 +173,32 @@ class FeedPostCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const Icon(Icons.more_horiz, color: AppColors.textMuted),
+                GestureDetector(
+                  onTap: () => _showMenu(context),
+                  behavior: HitTestBehavior.opaque,
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child:
+                        Icon(Icons.more_horiz, color: AppColors.textMuted),
+                  ),
+                ),
               ],
             ),
           ),
-          GestureDetector(
+          PostImageCarousel(
+            images: post.images,
+            height: 240,
+            margin: const EdgeInsets.symmetric(horizontal: 12),
             onTap: () => _openDetail(context),
-            child: Container(
-              height: 240,
-              margin: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                color: AppColors.softBg,
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: post.imageUrl.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: post.imageUrl,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      placeholder: (_, __) => Container(
-                        color: AppColors.softBg,
-                        alignment: Alignment.center,
-                        child: const CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      errorWidget: (_, __, ___) => Container(
-                        decoration: const BoxDecoration(gradient: AppColors.sunset),
-                        alignment: Alignment.center,
-                        child: const Icon(Icons.broken_image,
-                            color: Colors.white, size: 48),
-                      ),
-                    )
-                  : Container(
-                      decoration: const BoxDecoration(gradient: AppColors.sunset),
-                      alignment: Alignment.center,
-                      child: const Icon(Icons.image,
-                          color: Colors.white, size: 64),
-                    ),
-            ),
           ),
           if (post.caption.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Text(post.caption,
-                  style: const TextStyle(fontSize: 13.5, height: 1.4)),
+              child: LinkedText(
+                post.caption,
+                style: const TextStyle(
+                    fontSize: 13.5, height: 1.4, color: AppColors.textDark),
+              ),
             ),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),

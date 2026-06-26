@@ -29,6 +29,12 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
   bool _paused = false;
   bool _didPrecache = false;
 
+  final _replyCtrl = TextEditingController();
+  final _replyFocus = FocusNode();
+  bool _sendingReply = false;
+
+  static const List<String> _quickEmojis = ['❤️', '😂', '😮', '😢', '👏', '🔥'];
+
   @override
   void initState() {
     super.initState();
@@ -117,13 +123,54 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
   @override
   void dispose() {
     _progress.dispose();
+    _replyCtrl.dispose();
+    _replyFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _sendReply({String? emoji}) async {
+    final myUid = AuthService.instance.currentUser?.uid;
+    final story = widget.stories[_index];
+    if (myUid == null || myUid.isEmpty || myUid == story.authorId) return;
+    final raw = (emoji ?? _replyCtrl.text).trim();
+    if (raw.isEmpty || _sendingReply) return;
+    setState(() => _sendingReply = true);
+    try {
+      final chat =
+          await FirestoreService.instance.ensureChat(myUid, story.authorId);
+      await FirestoreService.instance.sendMessage(
+        chatId: chat.id,
+        senderId: myUid,
+        text: emoji != null ? emoji : 'Replied to your story: $raw',
+      );
+      _replyCtrl.clear();
+      _replyFocus.unfocus();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Reply sent'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
+      _resume();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sendingReply = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final story = widget.stories[_index];
     final w = MediaQuery.of(context).size.width;
+    final myUid = AuthService.instance.currentUser?.uid ?? '';
+    final canReply = myUid.isNotEmpty && myUid != story.authorId;
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
@@ -198,8 +245,100 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                 ),
               ),
             ),
+            if (canReply)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _replyBar(),
+              ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _replyBar() {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        12,
+        10,
+        12,
+        MediaQuery.of(context).viewInsets.bottom + 12,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Colors.transparent, Colors.black.withOpacity(.6)],
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              for (final e in _quickEmojis)
+                GestureDetector(
+                  onTap: _sendingReply ? null : () => _sendReply(emoji: e),
+                  child: Text(e, style: const TextStyle(fontSize: 26)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _replyCtrl,
+                  focusNode: _replyFocus,
+                  style: const TextStyle(color: Colors.white),
+                  textInputAction: TextInputAction.send,
+                  onTap: _pause,
+                  onSubmitted: (_) => _sendReply(),
+                  decoration: InputDecoration(
+                    hintText: 'Send a reply...',
+                    hintStyle:
+                        TextStyle(color: Colors.white.withOpacity(.7)),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 12),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(.18),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(30),
+                      borderSide:
+                          BorderSide(color: Colors.white.withOpacity(.5)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(30),
+                      borderSide: const BorderSide(color: Colors.white),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: _sendingReply ? null : () => _sendReply(),
+                child: Container(
+                  width: 46,
+                  height: 46,
+                  decoration: const BoxDecoration(
+                    gradient: AppColors.vibrant,
+                    shape: BoxShape.circle,
+                  ),
+                  child: _sendingReply
+                      ? const Padding(
+                          padding: EdgeInsets.all(13),
+                          child: CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send, color: Colors.white, size: 20),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
