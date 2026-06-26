@@ -39,7 +39,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "1:147677869835:android:20d2479f0ea86317ff140e"
+        applicationId "com.ifriends.app"
         minSdkVersion flutter.minSdkVersion
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
