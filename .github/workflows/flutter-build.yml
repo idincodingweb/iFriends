@@ -25,23 +25,19 @@ jobs:
       - name: Setup Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.6'
           channel: 'stable'
           cache: true
+
+      - name: Show Flutter version
+        run: flutter --version
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Patch Kotlin & MinSDK Version (Auto-Fix Firebase D8)
-        # Step ini otomatis memperbarui konfigurasi Gradle lo di memori GitHub Actions
-        # tanpa lo harus ngedit file aslinya secara manual.
-        run: |
-          # Paksa Kotlin ke versi 1.9.22 biar gak crash baca metadata Firebase
-          sed -i "s/ext.kotlin_version = .*/ext.kotlin_version = '1.9.22'/g" android/build.gradle
-          
-          # Paksa minSdkVersion ke 23 (syarat wajib firebase-auth 22.3.1)
-          sed -i "s/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g" android/app/build.gradle
-          sed -i "s/minSdkVersion 21/minSdkVersion 23/g" android/app/build.gradle
+      # NOTE: Do NOT run `flutter create --platforms=android .` here.
+      # The android/ folder already exists with custom app icons; that
+      # command regenerates platform files and replaces our custom
+      # ic_launcher.png with the default Flutter logo.
 
       - name: Build Release APK
         run: flutter build apk --release
