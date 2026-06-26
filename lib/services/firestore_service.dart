@@ -359,13 +359,24 @@ class FirestoreService {
     });
   }
 
-  Stream<List<Post>> feedStream({int limit = 50}) {
+  Stream<List<Post>> feedStream({
+    int limit = 50,
+    List<String> excludeUids = const [],
+  }) {
+    final blocked = excludeUids.toSet();
     return _posts
         .orderBy('createdAt', descending: true)
         .limit(limit)
         .snapshots()
-        .map((s) => s.docs.map(Post.fromDoc).where((p) => !p.archived).toList());
+        .map((s) => s.docs
+            .map(Post.fromDoc)
+            .where((p) =>
+                !p.archived &&
+                !p.hidden &&
+                !blocked.contains(p.authorId))
+            .toList());
   }
+
 
   Stream<List<Post>> userPostsStream(String uid) {
     // NOTE: we intentionally drop the server-side orderBy here. Combining
@@ -904,7 +915,226 @@ class FirestoreService {
     }
     await batch.commit();
   }
+
+  // ============================================================
+  // REPORTS  (task 9 + 12)
+  // ============================================================
+  CollectionReference<Map<String, dynamic>> get _reports =>
+      _db.collection('reports');
+
+  /// Generic report writer. [targetType] = 'post' | 'comment' | 'user'.
+  Future<void> _report({
+    required String targetType,
+    required String targetId,
+    required String reporterUid,
+    String reason = '',
+    String parentPostId = '',
+    String targetAuthorId = '',
+  }) async {
+    if (reporterUid.isEmpty || targetId.isEmpty) return;
+    await _reports.add({
+      'targetType': targetType,
+      'targetId': targetId,
+      'parentPostId': parentPostId,
+      'targetAuthorId': targetAuthorId,
+      'reporterUid': reporterUid,
+      'reason': reason,
+      'status': 'pending', // pending | reviewed | dismissed
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> reportPost({
+    required String postId,
+    required String reporterUid,
+    String reason = '',
+    String authorId = '',
+  }) =>
+      _report(
+        targetType: 'post',
+        targetId: postId,
+        reporterUid: reporterUid,
+        reason: reason,
+        targetAuthorId: authorId,
+      );
+
+  Future<void> reportComment({
+    required String postId,
+    required String commentId,
+    required String reporterUid,
+    String reason = '',
+    String authorId = '',
+  }) =>
+      _report(
+        targetType: 'comment',
+        targetId: commentId,
+        reporterUid: reporterUid,
+        reason: reason,
+        parentPostId: postId,
+        targetAuthorId: authorId,
+      );
+
+  Future<void> reportUser({
+    required String targetUid,
+    required String reporterUid,
+    String reason = '',
+  }) =>
+      _report(
+        targetType: 'user',
+        targetId: targetUid,
+        reporterUid: reporterUid,
+        reason: reason,
+        targetAuthorId: targetUid,
+      );
+
+  // ============================================================
+  // BLOCK / UNBLOCK  (task 9)
+  // ============================================================
+  /// Block another user. Adds to my `blocked` list AND removes the follow
+  /// relationship in both directions so content stops leaking either way.
+  Future<void> blockUser({
+    required String currentUid,
+    required String targetUid,
+  }) async {
+    if (currentUid.isEmpty || targetUid.isEmpty || currentUid == targetUid) {
+      return;
+    }
+    final me = _users.doc(currentUid);
+    final them = _users.doc(targetUid);
+    await _db.runTransaction((tx) async {
+      tx.update(me, {
+        'blocked': FieldValue.arrayUnion([targetUid]),
+        'following': FieldValue.arrayRemove([targetUid]),
+        'followers': FieldValue.arrayRemove([targetUid]),
+      });
+      tx.update(them, {
+        'following': FieldValue.arrayRemove([currentUid]),
+        'followers': FieldValue.arrayRemove([currentUid]),
+      });
+    });
+  }
+
+  Future<void> unblockUser({
+    required String currentUid,
+    required String targetUid,
+  }) {
+    return _users.doc(currentUid).update({
+      'blocked': FieldValue.arrayRemove([targetUid]),
+    });
+  }
+
+  // ============================================================
+  // MODERATION (task 12) — hide a post (admin / self take-down)
+  // ============================================================
+  Future<void> setPostHidden(String postId, bool hidden) {
+    return _posts.doc(postId).update({'hidden': hidden});
+  }
+
+  // ============================================================
+  // PRIVATE ACCOUNT + FOLLOW REQUESTS (task 11)
+  // ============================================================
+  Future<void> setAccountPrivate(String uid, bool isPrivate) {
+    return _users.doc(uid).update({'isPrivate': isPrivate});
+  }
+
+  CollectionReference<Map<String, dynamic>> _followRequestsCol(String uid) =>
+      _users.doc(uid).collection('followRequests');
+
+  /// Replacement for [toggleFollow] that respects [AppUser.isPrivate].
+  /// - Public account: behaves like toggleFollow (immediate follow).
+  /// - Private account: writes a doc in `users/{target}/followRequests/{me}`.
+  /// Returns one of: 'followed' | 'unfollowed' | 'requested' | 'cancelled'.
+  Future<String> requestOrToggleFollow({
+    required String currentUid,
+    required String targetUid,
+  }) async {
+    if (currentUid == targetUid) return 'unfollowed';
+    final targetSnap = await _users.doc(targetUid).get();
+    final targetData = targetSnap.data() ?? const <String, dynamic>{};
+    final isPrivate = (targetData['isPrivate'] ?? false) as bool;
+    final followers =
+        List<String>.from(targetData['followers'] ?? const <String>[]);
+    final alreadyFollowing = followers.contains(currentUid);
+
+    if (alreadyFollowing) {
+      await toggleFollow(currentUid: currentUid, targetUid: targetUid);
+      return 'unfollowed';
+    }
+    if (!isPrivate) {
+      await toggleFollow(currentUid: currentUid, targetUid: targetUid);
+      return 'followed';
+    }
+    // Private flow.
+    final reqRef = _followRequestsCol(targetUid).doc(currentUid);
+    final existing = await reqRef.get();
+    if (existing.exists) {
+      await reqRef.delete();
+      return 'cancelled';
+    }
+    await reqRef.set({
+      'fromUid': currentUid,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    await _pushNotification(
+      toUid: targetUid,
+      fromUid: currentUid,
+      type: 'follow_request',
+    );
+    return 'requested';
+  }
+
+  /// True if [currentUid] already has a pending follow request to [targetUid].
+  Stream<bool> hasPendingFollowRequest({
+    required String currentUid,
+    required String targetUid,
+  }) {
+    if (currentUid.isEmpty || targetUid.isEmpty) return Stream.value(false);
+    return _followRequestsCol(targetUid)
+        .doc(currentUid)
+        .snapshots()
+        .map((d) => d.exists);
+  }
+
+  /// Stream of incoming follow requests for [uid].
+  Stream<List<String>> incomingFollowRequests(String uid) {
+    if (uid.isEmpty) return Stream.value(const []);
+    return _followRequestsCol(uid)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((s) => s.docs.map((d) => d.id).toList());
+  }
+
+  Future<void> acceptFollowRequest({
+    required String currentUid, // me (the private account)
+    required String requesterUid,
+  }) async {
+    final me = _users.doc(currentUid);
+    final them = _users.doc(requesterUid);
+    final req = _followRequestsCol(currentUid).doc(requesterUid);
+    await _db.runTransaction((tx) async {
+      tx.update(me, {
+        'followers': FieldValue.arrayUnion([requesterUid]),
+      });
+      tx.update(them, {
+        'following': FieldValue.arrayUnion([currentUid]),
+      });
+      tx.delete(req);
+    });
+    await _pushNotification(
+      toUid: requesterUid,
+      fromUid: currentUid,
+      type: 'follow_accept',
+    );
+  }
+
+  Future<void> rejectFollowRequest({
+    required String currentUid,
+    required String requesterUid,
+  }) {
+    return _followRequestsCol(currentUid).doc(requesterUid).delete();
+  }
 }
+
 
 // ============================================================
 // AppNotification model (kept here so screens can import it from this file).

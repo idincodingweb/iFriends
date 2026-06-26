@@ -109,7 +109,28 @@ class FeedPostCard extends StatelessWidget {
                     await _confirmDelete(context);
                   },
                 ),
+              ] else ...[
+                ListTile(
+                  leading: const Icon(Icons.flag_outlined),
+                  title: const Text('Report post'),
+                  onTap: () async {
+                    Navigator.pop(sheetCtx);
+                    await _reportPost(context);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.block, color: Colors.red),
+                  title: Text(
+                    'Block @${post.authorUsername.isEmpty ? post.authorName : post.authorUsername}',
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(sheetCtx);
+                    await _confirmBlock(context);
+                  },
+                ),
               ],
+
             ],
           ),
         );
@@ -139,6 +160,91 @@ class FeedPostCard extends StatelessWidget {
       await FirestoreService.instance.deletePost(post.id);
     }
   }
+
+  Future<void> _reportPost(BuildContext context) async {
+    final me = currentUser;
+    if (me == null) return;
+    final reason = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        const reasons = [
+          'Spam',
+          'Konten dewasa / tidak pantas',
+          'Pelecehan / kebencian',
+          'Informasi salah',
+          'Lainnya',
+        ];
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Text('Laporkan post',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+              for (final r in reasons)
+                ListTile(
+                  title: Text(r),
+                  onTap: () => Navigator.pop(ctx, r),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+    if (reason == null) return;
+    await FirestoreService.instance.reportPost(
+      postId: post.id,
+      reporterUid: me.uid,
+      reason: reason,
+      authorId: post.authorId,
+    );
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Laporan terkirim. Terima kasih.')),
+      );
+    }
+  }
+
+  Future<void> _confirmBlock(BuildContext context) async {
+    final me = currentUser;
+    if (me == null) return;
+    final name = post.authorUsername.isEmpty
+        ? post.authorName
+        : '@${post.authorUsername}';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Block $name?'),
+        content: const Text(
+            'Mereka tidak akan bisa melihat profil/postmu, dan kamu tidak akan melihat konten mereka.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Batal')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Block', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await FirestoreService.instance.blockUser(
+      currentUid: me.uid,
+      targetUid: post.authorId,
+    );
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$name diblokir.')),
+      );
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {

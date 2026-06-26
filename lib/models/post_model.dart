@@ -15,6 +15,8 @@ class Post {
   final DateTime createdAt;
   final DateTime? editedAt;
   final bool archived;
+  final bool hidden; // moderation: hidden / under review
+
 
   const Post({
     required this.id,
@@ -31,6 +33,8 @@ class Post {
     required this.createdAt,
     this.editedAt,
     this.archived = false,
+    this.hidden = false,
+
   });
 
   int get likesCount => likes.length;
@@ -69,6 +73,8 @@ class Post {
           ? (m['editedAt'] as Timestamp).toDate()
           : null,
       archived: (m['archived'] ?? false) as bool,
+      hidden: (m['hidden'] ?? false) as bool,
+
     );
   }
 }

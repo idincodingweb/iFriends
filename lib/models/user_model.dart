@@ -13,9 +13,11 @@ class AppUser {
   final List<String> following;
   final List<String> followers;
   final List<String> saved; // postIds the user bookmarked
-  final String fcmToken; // for push (filled when firebase_messaging is wired)
+  final List<String> blocked; // uids this user has blocked
+  final bool isPrivate; // private account — followers must be approved
+  final String fcmToken;
   final DateTime createdAt;
-  final DateTime? usernameUpdatedAt; // last time the @username was changed
+  final DateTime? usernameUpdatedAt;
 
   const AppUser({
     required this.uid,
@@ -30,6 +32,8 @@ class AppUser {
     this.following = const [],
     this.followers = const [],
     this.saved = const [],
+    this.blocked = const [],
+    this.isPrivate = false,
     this.fcmToken = '',
     required this.createdAt,
     this.usernameUpdatedAt,
@@ -37,8 +41,6 @@ class AppUser {
 
   bool get isVerified => role == 'verified';
 
-  /// How many days the user must wait before changing the username again.
-  /// One change per [cooldownDays]. Returns 0 when a change is allowed now.
   static const int usernameCooldownDays = 14;
 
   DateTime? get nextUsernameChangeAt => usernameUpdatedAt
@@ -72,6 +74,8 @@ class AppUser {
       following: List<String>.from(m['following'] ?? const []),
       followers: List<String>.from(m['followers'] ?? const []),
       saved: List<String>.from(m['saved'] ?? const []),
+      blocked: List<String>.from(m['blocked'] ?? const []),
+      isPrivate: (m['isPrivate'] ?? false) as bool,
       fcmToken: (m['fcmToken'] ?? '') as String,
       createdAt: (m['createdAt'] is Timestamp)
           ? (m['createdAt'] as Timestamp).toDate()
@@ -94,6 +98,8 @@ class AppUser {
         'following': following,
         'followers': followers,
         'saved': saved,
+        'blocked': blocked,
+        'isPrivate': isPrivate,
         'fcmToken': fcmToken,
         'createdAt': Timestamp.fromDate(createdAt),
         if (usernameUpdatedAt != null)
@@ -106,6 +112,7 @@ class AppUser {
     String? location,
     String? avatarUrl,
     String? coverUrl,
+    bool? isPrivate,
   }) {
     return AppUser(
       uid: uid,
@@ -120,6 +127,8 @@ class AppUser {
       following: following,
       followers: followers,
       saved: saved,
+      blocked: blocked,
+      isPrivate: isPrivate ?? this.isPrivate,
       fcmToken: fcmToken,
       createdAt: createdAt,
       usernameUpdatedAt: usernameUpdatedAt,

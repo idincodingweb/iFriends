@@ -13,9 +13,7 @@ import 'chats_inbox_screen.dart';
 import 'friends_screen.dart';
 import 'story_create_screen.dart';
 import 'story_viewer_screen.dart';
-import 'trending_screen.dart';
 
-enum _FeedTab { all, trending, popular, saved }
 
 class HomeFeedScreen extends StatefulWidget {
   final AppUser? currentUser;
@@ -31,21 +29,14 @@ class HomeFeedScreen extends StatefulWidget {
 }
 
 class _HomeFeedScreenState extends State<HomeFeedScreen> {
-  _FeedTab _tab = _FeedTab.all;
+
 
   Stream<List<Post>> _stream() {
-    switch (_tab) {
-      case _FeedTab.trending:
-      case _FeedTab.popular:
-        return FirestoreService.instance.trendingStream();
-      case _FeedTab.saved:
-        final uid = AuthService.instance.currentUser?.uid ?? '';
-        if (uid.isEmpty) return const Stream.empty();
-        return FirestoreService.instance.savedPostsStream(uid);
-      case _FeedTab.all:
-        return FirestoreService.instance.feedStream();
-    }
+    final me = widget.currentUser;
+    final blocked = me?.blocked ?? const <String>[];
+    return FirestoreService.instance.feedStream(excludeUids: blocked);
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +50,8 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
             slivers: [
               SliverToBoxAdapter(child: _header(context)),
               SliverToBoxAdapter(child: _storiesRow()),
-              SliverToBoxAdapter(child: _tabsRow()),
+              const SliverToBoxAdapter(child: SizedBox(height: 8)),
+
               if (snap.connectionState == ConnectionState.waiting)
                 const SliverFillRemaining(
                   hasScrollBody: false,
@@ -184,10 +176,10 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
         }
         final ordered = [...unwatched, ...watched];
 
-        return Transform.translate(
-          offset: const Offset(0, -36),
+        return Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 4),
           child: SizedBox(
-            height: 116,
+            height: 104,
             child: ListView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -198,6 +190,7 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
             ),
           ),
         );
+
       },
     );
   }
@@ -338,69 +331,8 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
     );
   }
 
-    // ----- filter tabs -----
-  Widget _tabsRow() {
-    return Transform.translate(
-      offset: const Offset(0, -12),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16),
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(.05),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            _tabBtn(_FeedTab.all, Icons.view_list_rounded),
-            _tabBtn(_FeedTab.trending, Icons.local_fire_department_rounded),
-            _tabBtn(_FeedTab.popular, Icons.bar_chart_rounded),
-            _tabBtn(_FeedTab.saved, Icons.bookmark_border_rounded),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _tabBtn(_FeedTab tab, IconData icon) {
-    final selected = _tab == tab;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          if (tab == _FeedTab.popular) {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => TrendingScreen(currentUser: widget.currentUser),
-              ),
-            );
-            return;
-          }
-          setState(() => _tab = tab);
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          height: 44,
-          decoration: BoxDecoration(
-            gradient: selected ? AppColors.vibrant : null,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          alignment: Alignment.center,
-          child: Icon(
-            icon,
-            size: 22,
-            color: selected ? Colors.white : const Color(0xFF9A9A9A),
-          ),
-        ),
-      ),
-    );
-  }
 }
+
 
 class _EmptyFeed extends StatelessWidget {
   const _EmptyFeed();
