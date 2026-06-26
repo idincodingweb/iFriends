@@ -4,6 +4,7 @@ import '../models/user_model.dart';
 import '../screens/activity_screen.dart';
 import '../screens/archive_screen.dart';
 import '../screens/saved_screen.dart';
+import '../screens/settings_screen.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import 'user_avatar.dart';
@@ -71,7 +72,10 @@ class AppDrawerMenu extends StatelessWidget {
                   _item(context, Icons.insights_outlined, 'Insights', () {}),
                   _item(context, Icons.qr_code_2, 'QR Code', () {}),
                   const Divider(height: 24),
-                  _item(context, Icons.settings_outlined, 'Settings', () {}),
+                  _item(context, Icons.settings_outlined, 'Settings', () {
+                    if (user == null) return;
+                    _open(context, SettingsScreen(user: user!));
+                  }),
                   _item(context, Icons.switch_account_outlined,
                       'Switch Account', () {}),
                   _item(
