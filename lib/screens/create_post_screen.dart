@@ -7,6 +7,7 @@ import '../models/user_model.dart';
 import '../services/drive_service.dart';
 import '../services/firestore_service.dart';
 import '../theme/app_theme.dart';
+import 'image_crop_screen.dart';
 
 class CreatePostScreen extends StatefulWidget {
   final AppUser currentUser;
@@ -24,18 +25,32 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   static const int _maxImages = 10;
 
+  Future<File?> _cropForPost(File f) async {
+    if (!mounted) return null;
+    return Navigator.of(context).push<File>(
+      MaterialPageRoute(
+        builder: (_) => ImageCropScreen(
+          file: f,
+          title: 'Crop foto',
+          aspects: const [CropAspect.square, CropAspect.portrait],
+        ),
+      ),
+    );
+  }
+
   Future<void> _pickFromGallery() async {
     final xs = await ImagePicker().pickMultiImage(
       maxWidth: 1600,
       imageQuality: 85,
     );
     if (xs.isEmpty) return;
-    setState(() {
-      for (final x in xs) {
-        if (_images.length >= _maxImages) break;
-        _images.add(File(x.path));
-      }
-    });
+    for (final x in xs) {
+      if (_images.length >= _maxImages) break;
+      final cropped = await _cropForPost(File(x.path));
+      if (cropped == null) continue; // user cancelled this one
+      if (!mounted) return;
+      setState(() => _images.add(cropped));
+    }
   }
 
   Future<void> _pickFromCamera() async {
@@ -45,12 +60,20 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       imageQuality: 85,
     );
     if (x == null) return;
-    setState(() {
-      if (_images.length < _maxImages) _images.add(File(x.path));
-    });
+    if (_images.length >= _maxImages) return;
+    final cropped = await _cropForPost(File(x.path));
+    if (cropped == null) return;
+    if (!mounted) return;
+    setState(() => _images.add(cropped));
   }
 
   void _removeAt(int i) => setState(() => _images.removeAt(i));
+
+  Future<void> _replaceCrop(int i) async {
+    final cropped = await _cropForPost(_images[i]);
+    if (cropped == null || !mounted) return;
+    setState(() => _images[i] = cropped);
+  }
 
   Future<void> _submit() async {
     if (_images.isEmpty) return;
@@ -59,7 +82,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       _error = null;
     });
     try {
-      // Upload each selected image to Drive (multi-image carousel support).
       final urls = <String>[];
       for (final f in _images) {
         final url = await DriveService.instance.uploadImage(
@@ -175,7 +197,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                       if (_images.isEmpty) ...[
                         const SizedBox(height: 12),
                         const Text(
-                          'Pilih satu atau beberapa gambar untuk mengaktifkan tombol Post.',
+                          'Pilih foto, lalu atur crop 1:1 atau 3:4 sebelum Post.',
                           style: TextStyle(
                               color: AppColors.textMuted, fontSize: 12),
                         ),
@@ -243,10 +265,13 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           }
           return Stack(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: Image.file(_images[i],
-                    width: 220, height: 280, fit: BoxFit.cover),
+              GestureDetector(
+                onTap: () => _replaceCrop(i),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: Image.file(_images[i],
+                      width: 220, height: 280, fit: BoxFit.cover),
+                ),
               ),
               Positioned(
                 top: 8,
@@ -261,6 +286,31 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     ),
                     child: const Icon(Icons.close,
                         color: Colors.white, size: 18),
+                  ),
+                ),
+              ),
+              Positioned(
+                bottom: 8,
+                right: 8,
+                child: GestureDetector(
+                  onTap: () => _replaceCrop(i),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.55),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.crop, color: Colors.white, size: 14),
+                        SizedBox(width: 4),
+                        Text('Crop',
+                            style: TextStyle(
+                                color: Colors.white, fontSize: 11)),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -294,14 +344,15 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
             color: AppColors.softBg,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(i, color: AppColors.primaryCoral),
               const SizedBox(width: 8),
-              Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(label,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
             ],
           ),
         ),

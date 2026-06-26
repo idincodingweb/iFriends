@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../models/post_model.dart';
@@ -21,9 +22,6 @@ class ProfileScreen extends StatelessWidget {
       backgroundColor: AppColors.bgWhite,
       body: StreamBuilder<AppUser?>(
         stream: FirestoreService.instance.userStream(uid),
-        // Paint instantly from cache. The shared broadcast stream does not
-        // replay its last value to new subscribers, so without initialData a
-        // re-entered profile would hang on the spinner forever.
         initialData: FirestoreService.instance.cachedUser(uid),
         builder: (context, snap) {
           final user = snap.data;
@@ -45,15 +43,35 @@ class _ProfileBody extends StatelessWidget {
   final bool isMe;
   const _ProfileBody({required this.user, required this.isMe});
 
+  static const double _coverHeight = 240;
+  static const double _avatarSize = 110;
+
   @override
   Widget build(BuildContext context) {
     final myUid = AuthService.instance.currentUser?.uid;
     return CustomScrollView(
       slivers: [
-        SliverToBoxAdapter(child: _header(context, myUid)),
-        SliverToBoxAdapter(child: _stats()),
-        SliverToBoxAdapter(child: _bio()),
-        const SliverToBoxAdapter(child: SizedBox(height: 8)),
+        SliverToBoxAdapter(child: _header(context)),
+        // Avatar overlaps the cover/sheet boundary: shift content up by half avatar.
+        SliverToBoxAdapter(
+          child: Transform.translate(
+            offset: const Offset(0, -_avatarSize / 2 - 8),
+            child: Column(
+              children: [
+                _identity(),
+                const SizedBox(height: 14),
+                _statsPill(),
+                const SizedBox(height: 16),
+                _bio(),
+                if (!isMe && myUid != null) ...[
+                  const SizedBox(height: 12),
+                  _otherActions(context, myUid),
+                ],
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        ),
         StreamBuilder<List<Post>>(
           stream: FirestoreService.instance.userPostsStream(user.uid),
           builder: (context, s) {
@@ -90,79 +108,237 @@ class _ProfileBody extends StatelessWidget {
     );
   }
 
-  Widget _header(BuildContext context, String? myUid) {
-
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: AppColors.vibrant,
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(32)),
-      ),
-      padding: const EdgeInsets.fromLTRB(20, 60, 20, 24),
-      child: Column(
+  // ----- COVER + TOP BAR -----
+  Widget _header(BuildContext context) {
+    return SizedBox(
+      height: _coverHeight + _avatarSize / 2,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          Row(
-            children: [
-              if (!isMe)
-                IconButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                )
-              else
-                const SizedBox(width: 4),
-              const Spacer(),
-              Text(
-                isMe ? 'My Profile' : '@${user.username}',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600),
-              ),
-              const Spacer(),
-              if (isMe)
-                IconButton(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => EditProfileScreen(user: user),
+          // Cover image / gradient fallback
+          Positioned.fill(
+            bottom: _avatarSize / 2,
+            child: ClipRRect(
+              borderRadius:
+                  const BorderRadius.vertical(bottom: Radius.circular(28)),
+              child: user.coverUrl.isNotEmpty
+                  ? Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        CachedNetworkImage(
+                          imageUrl: user.coverUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) => Container(
+                              decoration: const BoxDecoration(
+                                  gradient: AppColors.vibrant)),
+                          errorWidget: (_, __, ___) => Container(
+                              decoration: const BoxDecoration(
+                                  gradient: AppColors.vibrant)),
+                        ),
+                        Container(color: Colors.black.withOpacity(.05)),
+                      ],
+                    )
+                  : Container(
+                      decoration:
+                          const BoxDecoration(gradient: AppColors.vibrant),
                     ),
+            ),
+          ),
+          // Top bar buttons
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 12,
+            right: 12,
+            child: Row(
+              children: [
+                _circleBtn(
+                  icon: Icons.arrow_back,
+                  onTap: () => Navigator.of(context).maybePop(),
+                  show: !isMe || Navigator.of(context).canPop(),
+                ),
+                const Spacer(),
+                if (isMe)
+                  _circleBtn(
+                    icon: Icons.edit,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => EditProfileScreen(user: user),
+                      ),
+                    ),
+                  )
+                else
+                  _circleBtn(
+                    icon: Icons.more_horiz,
+                    onTap: () {},
                   ),
-                  icon: const Icon(Icons.edit, color: Colors.white),
-                )
-              else
-                const SizedBox(width: 4),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          UserAvatar(
-            avatarUrl: user.avatarUrl,
-            seed: user.username,
-            size: 96,
-            ring: true,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Flexible(
-                child: Text(
-                  user.displayName,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700),
+          // Avatar overlapping the bottom of the cover
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(.08),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: UserAvatar(
+                  avatarUrl: user.avatarUrl,
+                  seed: user.username,
+                  size: _avatarSize,
+                  ring: false,
                 ),
               ),
-              if (user.isVerified) ...[
-                const SizedBox(width: 6),
-                const Icon(Icons.verified, color: Colors.white, size: 20),
-              ],
-            ],
+            ),
           ),
-          Text('@${user.username}',
-              style: const TextStyle(color: Colors.white70)),
-          const SizedBox(height: 14),
-          if (!isMe && myUid != null) _otherActions(context, myUid),
+        ],
+      ),
+    );
+  }
+
+  Widget _circleBtn({
+    required IconData icon,
+    required VoidCallback onTap,
+    bool show = true,
+  }) {
+    if (!show) return const SizedBox(width: 40, height: 40);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(.85),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: AppColors.textDark, size: 20),
+      ),
+    );
+  }
+
+  // ----- IDENTITY (name + @username) -----
+  Widget _identity() {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Flexible(
+              child: Text(
+                user.displayName.isEmpty ? user.username : user.displayName,
+                style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textDark),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            if (user.isVerified) ...[
+              const SizedBox(width: 6),
+              const Icon(Icons.verified,
+                  color: AppColors.accentBlue, size: 20),
+            ],
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text('@${user.username}',
+            style: const TextStyle(color: AppColors.textMuted, fontSize: 14)),
+      ],
+    );
+  }
+
+  // ----- STATS PILL CARD -----
+  Widget _statsPill() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+        decoration: BoxDecoration(
+          color: AppColors.softBg,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: StreamBuilder<List<Post>>(
+          stream: FirestoreService.instance.userPostsStream(user.uid),
+          builder: (context, snap) {
+            final count = snap.data?.length ?? 0;
+            return Row(
+              children: [
+                Expanded(child: _stat('$count', 'Posts')),
+                _divider(),
+                Expanded(child: _stat('${user.followers.length}', 'Followers')),
+                _divider(),
+                Expanded(child: _stat('${user.following.length}', 'Following')),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _divider() => Container(
+        width: 1,
+        height: 28,
+        color: Colors.black.withOpacity(.06),
+      );
+
+  Widget _stat(String value, String label) {
+    return Column(
+      children: [
+        Text(value,
+            style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textDark)),
+        const SizedBox(height: 2),
+        Text(label,
+            style: const TextStyle(
+                color: AppColors.textMuted, fontSize: 12)),
+      ],
+    );
+  }
+
+  // ----- BIO + LOCATION -----
+  Widget _bio() {
+    if (user.bio.isEmpty && user.location.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (user.bio.isNotEmpty)
+            Text(user.bio,
+                style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textDark)),
+          if (user.location.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.location_on_outlined,
+                      size: 16, color: AppColors.textMuted),
+                  const SizedBox(width: 4),
+                  Text(user.location,
+                      style: const TextStyle(
+                          color: AppColors.textMuted, fontSize: 13)),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -175,124 +351,66 @@ class _ProfileBody extends StatelessWidget {
       builder: (context, s) {
         final me = s.data;
         final following = me?.following.contains(user.uid) ?? false;
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            GestureDetector(
-              onTap: () => FirestoreService.instance.toggleFollow(
-                currentUid: myUid,
-                targetUid: user.uid,
-              ),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 22, vertical: 10),
-                decoration: BoxDecoration(
-                  color: following
-                      ? Colors.white.withOpacity(.25)
-                      : Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Text(
-                  following ? 'Following' : 'Follow',
-                  style: TextStyle(
-                    color: following ? Colors.white : AppColors.primaryCoral,
-                    fontWeight: FontWeight.w700,
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => FirestoreService.instance.toggleFollow(
+                    currentUid: myUid,
+                    targetUid: user.uid,
                   ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            GestureDetector(
-              onTap: () async {
-                final chat = await FirestoreService.instance
-                    .ensureChat(myUid, user.uid);
-                if (!context.mounted) return;
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ChatScreen(
-                      chatId: chat.id,
-                      otherUser: user,
+                  child: Container(
+                    height: 46,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      gradient: following ? null : AppColors.vibrant,
+                      color: following ? AppColors.softBg : null,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      following ? 'Following' : 'Follow',
+                      style: TextStyle(
+                        color: following
+                            ? AppColors.textDark
+                            : Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                );
-              },
-              child: Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(Icons.send,
-                    color: AppColors.primaryCoral, size: 22),
               ),
-            ),
-          ],
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: () async {
+                  final chat = await FirestoreService.instance
+                      .ensureChat(myUid, user.uid);
+                  if (!context.mounted) return;
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ChatScreen(
+                        chatId: chat.id,
+                        otherUser: user,
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: AppColors.softBg,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.send,
+                      color: AppColors.primaryCoral, size: 20),
+                ),
+              ),
+            ],
+          ),
         );
       },
-    );
-  }
-
-  Widget _stats() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-      child: StreamBuilder<List<Post>>(
-        stream: FirestoreService.instance.userPostsStream(user.uid),
-        builder: (context, snap) {
-          final count = snap.data?.length ?? 0;
-          return Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _stat('$count', 'Posts'),
-              _stat('${user.followers.length}', 'Followers'),
-              _stat('${user.following.length}', 'Following'),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _stat(String value, String label) {
-    return Column(
-      children: [
-        Text(value,
-            style: const TextStyle(
-                fontSize: 18, fontWeight: FontWeight.w700)),
-        Text(label,
-            style: const TextStyle(
-                color: AppColors.textMuted, fontSize: 12)),
-      ],
-    );
-  }
-
-  Widget _bio() {
-    if (user.bio.isEmpty && user.location.isEmpty) {
-      return const SizedBox(height: 8);
-    }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 6, 20, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (user.bio.isNotEmpty)
-            Text(user.bio, style: const TextStyle(fontSize: 13.5, height: 1.4)),
-          if (user.location.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Row(
-                children: [
-                  const Icon(Icons.location_on,
-                      size: 14, color: AppColors.primaryCoral),
-                  const SizedBox(width: 4),
-                  Text(user.location,
-                      style: const TextStyle(
-                          color: AppColors.textMuted, fontSize: 12)),
-                ],
-              ),
-            ),
-        ],
-      ),
     );
   }
 }
@@ -302,6 +420,7 @@ class _GridTile extends StatelessWidget {
   const _GridTile({required this.post});
   @override
   Widget build(BuildContext context) {
+    final img = post.images.isNotEmpty ? post.images.first : '';
     return GestureDetector(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(
@@ -312,11 +431,14 @@ class _GridTile extends StatelessWidget {
         ),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: post.imageUrl.isNotEmpty
-            ? Image.network(post.imageUrl,
+        borderRadius: BorderRadius.circular(12),
+        child: img.isNotEmpty
+            ? CachedNetworkImage(
+                imageUrl: img,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => _fallback())
+                placeholder: (_, __) => Container(color: AppColors.softBg),
+                errorWidget: (_, __, ___) => _fallback(),
+              )
             : _fallback(),
       ),
     );

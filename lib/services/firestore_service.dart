@@ -63,12 +63,14 @@ class FirestoreService {
     String? bio,
     String? location,
     String? avatarUrl,
+    String? coverUrl,
   }) {
     final m = <String, dynamic>{};
     if (displayName != null) m['displayName'] = displayName;
     if (bio != null) m['bio'] = bio;
     if (location != null) m['location'] = location;
     if (avatarUrl != null) m['avatarUrl'] = avatarUrl;
+    if (coverUrl != null) m['coverUrl'] = coverUrl;
     return _users.doc(uid).update(m);
   }
 

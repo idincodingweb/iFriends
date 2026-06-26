@@ -43,6 +43,7 @@ class AppConfig {
   static const String folderPosts = 'posts';
   static const String folderChats = 'chats';
   static const String folderStories = 'stories';
+  static const String folderCovers = 'covers';
 
   static bool get isAppsScriptConfigured =>
       appsScriptUrl.isNotEmpty && !appsScriptUrl.startsWith('TODO_');

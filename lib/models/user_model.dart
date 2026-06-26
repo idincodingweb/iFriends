@@ -8,6 +8,7 @@ class AppUser {
   final String bio;
   final String location;
   final String avatarUrl;
+  final String coverUrl;
   final String role; // 'user' | 'verified'
   final List<String> following;
   final List<String> followers;
@@ -24,6 +25,7 @@ class AppUser {
     this.bio = '',
     this.location = '',
     this.avatarUrl = '',
+    this.coverUrl = '',
     this.role = 'user',
     this.following = const [],
     this.followers = const [],
@@ -65,6 +67,7 @@ class AppUser {
       bio: (m['bio'] ?? '') as String,
       location: (m['location'] ?? '') as String,
       avatarUrl: (m['avatarUrl'] ?? '') as String,
+      coverUrl: (m['coverUrl'] ?? '') as String,
       role: (m['role'] ?? 'user') as String,
       following: List<String>.from(m['following'] ?? const []),
       followers: List<String>.from(m['followers'] ?? const []),
@@ -86,6 +89,7 @@ class AppUser {
         'bio': bio,
         'location': location,
         'avatarUrl': avatarUrl,
+        'coverUrl': coverUrl,
         'role': role,
         'following': following,
         'followers': followers,
@@ -101,6 +105,7 @@ class AppUser {
     String? bio,
     String? location,
     String? avatarUrl,
+    String? coverUrl,
   }) {
     return AppUser(
       uid: uid,
@@ -110,6 +115,7 @@ class AppUser {
       bio: bio ?? this.bio,
       location: location ?? this.location,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      coverUrl: coverUrl ?? this.coverUrl,
       role: role,
       following: following,
       followers: followers,

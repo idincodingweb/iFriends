@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -8,6 +9,7 @@ import '../services/drive_service.dart';
 import '../services/firestore_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/user_avatar.dart';
+import 'image_crop_screen.dart';
 
 class EditProfileScreen extends StatefulWidget {
   final AppUser user;
@@ -28,17 +30,46 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       TextEditingController(text: widget.user.location);
 
   File? _pickedAvatar;
+  File? _pickedCover;
   bool _saving = false;
   String? _error;
 
   Future<void> _pickAvatar() async {
-    final picker = ImagePicker();
-    final x = await picker.pickImage(
+    final x = await ImagePicker().pickImage(
       source: ImageSource.gallery,
-      maxWidth: 800,
-      imageQuality: 85,
+      maxWidth: 1200,
+      imageQuality: 88,
     );
-    if (x != null) setState(() => _pickedAvatar = File(x.path));
+    if (x == null || !mounted) return;
+    // Crop avatar 1:1.
+    final cropped = await Navigator.of(context).push<File>(
+      MaterialPageRoute(
+        builder: (_) => ImageCropScreen(
+          file: File(x.path),
+          title: 'Atur foto profil',
+          aspects: const [CropAspect.square],
+        ),
+      ),
+    );
+    if (cropped != null) setState(() => _pickedAvatar = cropped);
+  }
+
+  Future<void> _pickCover() async {
+    final x = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      // Cover bisa apa saja ukuran/rasionya — user atur sendiri di cropper.
+    );
+    if (x == null || !mounted) return;
+    final cropped = await Navigator.of(context).push<File>(
+      MaterialPageRoute(
+        builder: (_) => ImageCropScreen(
+          file: File(x.path),
+          title: 'Atur foto sampul',
+          aspects: const [CropAspect.cover, CropAspect.square],
+        ),
+      ),
+    );
+    if (cropped != null) setState(() => _pickedCover = cropped);
   }
 
   Future<void> _save() async {
@@ -47,8 +78,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _error = null;
     });
     try {
-      // Username change first (enforces 14-day cooldown + uniqueness). Throws
-      // a user-facing Exception that we surface inline.
       final newUsername =
           _username.text.trim().toLowerCase().replaceAll('@', '');
       if (newUsername != widget.user.username) {
@@ -64,12 +93,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           folder: AppConfig.folderProfiles,
         );
       }
+      String? coverUrl;
+      if (_pickedCover != null) {
+        coverUrl = await DriveService.instance.uploadImage(
+          file: _pickedCover!,
+          folder: AppConfig.folderCovers,
+        );
+      }
       await FirestoreService.instance.updateUser(
         widget.user.uid,
         displayName: _name.text.trim(),
         bio: _bio.text.trim(),
         location: _location.text.trim(),
         avatarUrl: avatarUrl,
+        coverUrl: coverUrl,
       );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
@@ -79,7 +116,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (mounted) setState(() => _saving = false);
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -91,9 +127,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         foregroundColor: AppColors.textDark,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
         child: Column(
           children: [
+            _coverPicker(),
+            const SizedBox(height: 18),
             GestureDetector(
               onTap: _pickAvatar,
               child: Stack(
@@ -181,6 +219,54 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _coverPicker() {
+    return GestureDetector(
+      onTap: _pickCover,
+      child: AspectRatio(
+        aspectRatio: 16 / 9,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_pickedCover != null)
+                Image.file(_pickedCover!, fit: BoxFit.cover)
+              else if (widget.user.coverUrl.isNotEmpty)
+                CachedNetworkImage(
+                  imageUrl: widget.user.coverUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (_, __) =>
+                      Container(color: AppColors.softBg),
+                  errorWidget: (_, __, ___) =>
+                      Container(color: AppColors.softBg),
+                )
+              else
+                Container(
+                  decoration:
+                      const BoxDecoration(gradient: AppColors.vibrant),
+                ),
+              Container(color: Colors.black.withOpacity(.15)),
+              const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.photo_camera_back,
+                        color: Colors.white, size: 28),
+                    SizedBox(height: 6),
+                    Text('Ubah foto sampul',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

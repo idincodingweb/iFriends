@@ -89,29 +89,65 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
   }
 
   // ----- header -----
+  String _greeting() {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'Good morning,';
+    if (h < 17) return 'Good afternoon,';
+    if (h < 21) return 'Good evening,';
+    return 'Good night,';
+  }
+
+  String _firstName() {
+    final me = widget.currentUser;
+    if (me == null) return '';
+    final name = me.displayName.trim();
+    if (name.isEmpty) return me.username;
+    return name.split(RegExp(r'\s+')).first;
+  }
+
   Widget _header(BuildContext context) {
+    final wave = String.fromCharCode(0x1F44B);
     return Container(
       decoration: const BoxDecoration(
         gradient: AppColors.vibrant,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(36)),
       ),
-      padding: const EdgeInsets.fromLTRB(20, 56, 20, 18),
+      padding: const EdgeInsets.fromLTRB(20, 56, 20, 26),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           GestureDetector(
             onTap: widget.onMenu,
-            child: _MenuWithBadge(
-              uid: AuthService.instance.currentUser?.uid ?? '',
-            ),
-          ),
-          const SizedBox(width: 14),
-          const Text(
-            'iFriends',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -.5,
+            behavior: HitTestBehavior.opaque,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _greeting(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Text(
+                      _firstName().isEmpty ? 'iFriends' : '${_firstName()}!',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -.5,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(wave, style: const TextStyle(fontSize: 22)),
+                  ],
+                ),
+              ],
             ),
           ),
           const Spacer(),
