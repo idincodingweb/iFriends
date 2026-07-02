@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "147677869835",
-    "project_id": "ifriends-app-e11da",
-    "storage_bucket": "ifriends-app-e11da.firebasestorage.app"
+    "project_number": "MEMEK",
+    "project_id": "MEMEK",
+    "storage_bucket": "MEMEK"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:147677869835:android:20d2479f0ea86317ff140e",
+        "mobilesdk_app_id": "1:MEMEK:android:MEMEK",
         "android_client_info": {
           "package_name": "com.ifriends.app"
         }
